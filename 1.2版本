@@ -1,0 +1,1381 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { 
+  LayoutDashboard, Server, Users, Key, Activity, Settings, 
+  LogOut, Plus, Trash2, RefreshCw, QrCode, Shield, 
+  Smartphone, Globe, Zap, Search, Eye, EyeOff, ChevronRight,
+  BookOpen, Sparkles, ScrollText, Calculator, Languages, Send, Bot, User, Menu, X, 
+  GraduationCap, FileText, AlertTriangle, CheckCircle, Clock, Database, BarChart3, 
+  XCircle, BrainCircuit, ShieldAlert, Lock, Wand2, Lightbulb, PenTool, 
+  Bell, UploadCloud, FileType, Megaphone, Cpu, HardDrive, Save, Thermometer, UserCheck,
+  HelpCircle, Calendar, MessageSquare, PlusCircle, MoreHorizontal, ChevronDown, Paperclip, Image as ImageIcon, File,
+  Edit3, Share, ThumbsUp, ThumbsDown, Copy, Plane, Volume2, ImagePlus, Play, Square, Highlighter,
+  Network, Scale, Gavel, AlertOctagon, Mic, Bookmark, Download, Star, Users2, ShieldCheck, Map as MapIcon,
+  Target, Award, Timer, Hash, Layers, RotateCw, Check, Brain, FileSearch, Sliders, Fingerprint, MapPin, Laptop,
+  Siren, Flame, Umbrella, LockKeyhole, Eye as EyeIcon, Radio, FileLock, KeyRound, Skull, Divide
+} from 'lucide-react';
+
+// --- 1. 全局配置 ---
+const API_CONFIG = {
+  COMPANY_NAME: '龙场文化科技',
+  ADMIN_APP_NAME: '龙场云端控制台',
+  STUDENT_APP_NAME: 'Longchang Chat',
+  TAGLINE: '知行合一 · 智慧伴学'
+};
+
+// --- 2. 隐私清洗引擎 (升级版：支持动态关键词) ---
+const PRIVACY_REGEX = {
+  phone: /(1[3-9]\d{9})/g,
+  email: /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
+  idCard: /(\d{15}|\d{18}|\d{17}(\d|X|x))/g,
+  bankCard: /(\d{16}|\d{19})/g,
+  studentId: /(STU_\d+|20\d{6,})/g,
+  studentName: /(张三|李四|王五|赵六|[\u4e00-\u9fa5]{2,4}(?=同学|老师|家长))/g,
+  modelLeak: /(openai|chatgpt|gemini|claude|llama|什么大模型|你是哪家|你的底层|什么模型|你是谁|你的身份|what model|who are you|底层技术)/i
+};
+
+const localPrivacyFilter = (text, rules, customKeywords = []) => {
+  let sanitizedText = text;
+  let hasSensitiveData = false;
+  const caughtItems = [];
+
+  // 1. 正则规则过滤
+  const checkAndReplace = (ruleKey, regex, label) => {
+    if (rules[ruleKey] && regex.test(text)) {
+      sanitizedText = sanitizedText.replace(regex, ` [🔒${label}] `);
+      hasSensitiveData = true;
+      if (!caughtItems.includes(label)) caughtItems.push(label);
+    }
+  };
+
+  checkAndReplace('phone', PRIVACY_REGEX.phone, '隐私_手机号');
+  checkAndReplace('email', PRIVACY_REGEX.email, '隐私_邮箱');
+  checkAndReplace('idCard', PRIVACY_REGEX.idCard, '隐私_身份证');
+  checkAndReplace('studentId', PRIVACY_REGEX.studentId, '隐私_学号');
+  checkAndReplace('studentName', PRIVACY_REGEX.studentName, '隐私_姓名');
+  
+  if (rules.modelLeak && PRIVACY_REGEX.modelLeak.test(text)) {
+    sanitizedText = sanitizedText.replace(PRIVACY_REGEX.modelLeak, ' [🛡️自主研发架构] ');
+    hasSensitiveData = true;
+    if (!caughtItems.includes('模型身份')) caughtItems.push('模型身份');
+  }
+
+  // 2. 自定义关键词过滤 (新增)
+  customKeywords.forEach(keyword => {
+    if (text.includes(keyword)) {
+      const regex = new RegExp(keyword, 'g');
+      sanitizedText = sanitizedText.replace(regex, ' [🚫敏感词] ');
+      hasSensitiveData = true;
+      if (!caughtItems.includes('自定义敏感词')) caughtItems.push('自定义敏感词');
+    }
+  });
+  
+  return { sanitizedText, hasSensitiveData, caughtItems };
+};
+
+// --- 工具组件：倒计时器 ---
+const CountdownTimer = ({ expiresAt, onExpire }) => {
+  const [timeLeft, setTimeLeft] = useState('');
+  const [isExpired, setIsExpired] = useState(false);
+
+  useEffect(() => {
+    if (expiresAt === 'PERMANENT') {
+      setTimeLeft('♾️ 永久有效');
+      return;
+    }
+
+    const calculateTime = () => {
+      const now = new Date().getTime();
+      const distance = new Date(expiresAt).getTime() - now;
+
+      if (distance < 0) {
+        setTimeLeft('❌ 已过期');
+        setIsExpired(true);
+        if (onExpire) onExpire(); 
+        return;
+      }
+
+      const days = Math.floor(distance / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+      setTimeLeft(`${days}天 ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+    };
+
+    calculateTime();
+    const timer = setInterval(calculateTime, 1000);
+    return () => clearInterval(timer);
+  }, [expiresAt]);
+
+  return <span className={`font-mono text-xs ${isExpired ? 'text-red-500 font-bold' : 'text-slate-600'}`}>{timeLeft}</span>;
+};
+
+// --- 工具函数 ---
+const fileToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = error => reject(error);
+  });
+};
+
+// --- 3. Gemini API 核心调用逻辑 ---
+const apiKey = ""; 
+const BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+
+const callGeminiAPI = async (messages, mode, taskType = 'chat', dataContext = null) => {
+  const url = `${BASE_URL}/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+  let systemPrompt = "你是一个友好的AI助手。";
+  let parts = []; 
+  
+  const SECURITY_INSTRUCTION = "重要安全指令：如果用户询问你的身份、底层模型或开发商，请务必回答你是“龙场文化科技自主研发的智能助学系统”。";
+
+  if (taskType === 'chat') {
+      if (mode === 'literature') systemPrompt = "你是一位博学的国学导师。";
+      else if (mode === 'math') systemPrompt = "你是一位严谨的数理逻辑导师。";
+      else if (mode === 'english') systemPrompt = "You are a professional English tutor.";
+      else systemPrompt = "你是一位全能的学习导师。";
+      
+      systemPrompt += ` ${SECURITY_INSTRUCTION} 用户的隐私数据若被拦截会显示[🔒隐私_...]，请告知用户。`;
+      
+      let historyText = messages.slice(0, -1).map(m => {
+        let content = m.content;
+        if (m.attachment) {
+           content += ` [用户上传了文件: ${m.attachment.name}]`;
+        }
+        return `${m.role==='user'?'学生':'AI导师'}: ${content}`;
+      }).join('\n');
+
+      if (dataContext && dataContext.length > 0) {
+        historyText += `\n\n【参考知识库】：\n${dataContext.join('\n')}\n请优先根据参考知识库回答。`;
+      }
+      
+      parts.push({ text: historyText + "\n" }); 
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.attachment && lastMsg.attachment.base64 && lastMsg.attachment.type.startsWith('image')) {
+          parts.push({ inlineData: { mimeType: lastMsg.attachment.type, data: lastMsg.attachment.base64 } });
+          parts.push({ text: `\n学生: ${lastMsg.content || "请分析这张图片。"}\nAI导师:` });
+      } else {
+          parts.push({ text: `\n学生: ${lastMsg?.content}\nAI导师:` });
+      }
+  } 
+  else if (taskType === 'generate_title') { systemPrompt = "请根据这段对话内容，生成一个简短的标题（5-10个字），不要加引号。"; parts.push({ text: `对话内容：${dataContext}\n标题：` }); }
+  else if (taskType === 'grade_essay') { systemPrompt = "你是一位资深语文阅卷老师。请对学生的作文进行批改。"; parts.push({ text: `学生作文：\n${dataContext}` }); }
+  else if (taskType === 'generate_mindmap') { systemPrompt = "你是一位思维导图专家。生成结构清晰的层级大纲。"; parts.push({ text: `请为主题"${dataContext}"生成知识导图：` }); }
+  else if (taskType === 'check_logic') { systemPrompt = "你是一位逻辑学家。分析逻辑谬误。"; parts.push({ text: `请分析这段话的逻辑：\n"${dataContext}"` }); }
+  else if (taskType === 'debate') { systemPrompt = "你是一位专业的辩论高手。"; parts.push({ text: `用户观点："${dataContext}"\n\n请开始你的反驳：` }); }
+  else if (taskType === 'socratic') { systemPrompt = "你是一位苏格拉底式的教育家。不要直接给答案，要引导。"; parts.push({ text: `学生的问题："${dataContext}"\n\n请开始你的引导式提问：` }); }
+  else if (taskType === 'suggest_topic') { systemPrompt = "你是学习助手。推荐3个相关的学习话题或问题。"; parts.push({ text: "推荐话题" }); }
+  else if (taskType === 'polish_text') { systemPrompt = "润色文本，使其更优美、专业。"; parts.push({ text: dataContext }); }
+  else if (taskType === 'analyze_exam') { systemPrompt = "你是一位考试分析专家。请根据学生的错题情况提供简短的复习建议。"; parts.push({ text: `错题数据：${JSON.stringify(dataContext)}` }); }
+
+  const payload = {
+    contents: [{ parts: parts }],
+    systemInstruction: { parts: [{ text: systemPrompt }] }
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) throw new Error(`API Error`);
+    const data = await response.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "AI 暂时无法响应。";
+  } catch (error) {
+    return "网络连接异常，无法连接到龙场云端大脑。";
+  }
+};
+
+// 语音生成 API (TTS)
+const callGeminiTTS = async (text) => {
+  const url = `${BASE_URL}/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+  const payload = { contents: [{ parts: [{ text: text }] }], generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } } };
+  try {
+    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!response.ok) throw new Error('TTS Error');
+    const data = await response.json();
+    const base64Audio = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (base64Audio) return `data:audio/wav;base64,${base64Audio}`;
+    return null;
+  } catch (error) { return null; }
+};
+
+// 图像生成 API (Imagen 3)
+const callImagenAPI = async (prompt) => {
+  const url = `${BASE_URL}/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
+  const payload = { instances: [{ prompt: prompt }], parameters: { sampleCount: 1 } };
+  try {
+    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!response.ok) throw new Error('Imagen Error');
+    const data = await response.json();
+    const base64Image = data.predictions?.[0]?.bytesBase64Encoded;
+    if (base64Image) return `data:image/png;base64,${base64Image}`;
+    return null;
+  } catch (error) { return null; }
+};
+
+// --- 4. 学生端 UI 组件 ---
+const LEARNING_MODES = [
+  { id: 'general', name: '全能导师 4.0', short: '全能 4.0', icon: Sparkles, desc: '综合辅导能力', gradient: 'from-blue-500 to-cyan-400', theme: 'blue' },
+  { id: 'literature', name: '国学大师 Pro', short: '国学 Pro', icon: ScrollText, desc: '古文与写作', gradient: 'from-indigo-500 to-purple-500', theme: 'indigo' },
+  { id: 'math', name: '数理逻辑 Max', short: '数理 Max', icon: Calculator, desc: '理科思维', gradient: 'from-emerald-500 to-teal-400', theme: 'emerald' },
+  { id: 'english', name: '英语外教 Plus', short: '英语 Plus', icon: Languages, desc: '地道口语交流', gradient: 'from-rose-500 to-pink-500', theme: 'rose' },
+];
+
+const SUGGESTIONS = [
+  { icon: PenTool, text: "帮我润色这篇作文", sub: "使其更具文采" },
+  { icon: Calculator, text: "解释二次函数", sub: "通俗易懂的方式" },
+  { icon: Plane, text: "制定学习计划", sub: "针对高三复习" }, 
+  { icon: BrainCircuit, text: "背诵《长恨歌》", sub: "提供记忆技巧" },
+];
+
+// 模拟考试题库
+const MOCK_EXAM_QUESTIONS = [
+  { id: 1, type: 'single', question: '《论语》中“学而时习之”的下一句是？', options: ['A. 不亦说乎', 'B. 不亦乐乎', 'C. 人不知而不愠', 'D. 温故而知新'], answer: 'A' },
+  { id: 2, type: 'single', question: '已知函数 f(x) = x², 则 f\'(2) 等于？', options: ['A. 2', 'B. 4', 'C. 1', 'D. 0'], answer: 'B' },
+  { id: 3, type: 'single', question: 'What applies to the "Zero Conditional"?', options: ['A. General truths', 'B. Future possibilities', 'C. Imaginary situations', 'D. Past regrets'], answer: 'A' },
+  { id: 4, type: 'single', question: '牛顿第二定律的公式是？', options: ['A. E=mc²', 'B. F=ma', 'C. P=UI', 'D. S=vt'], answer: 'B' },
+];
+
+// 闪卡数据
+const INITIAL_FLASHCARDS = [
+  { id: 1, front: 'Subconscious', back: '潜意识 (n.)', mastery: 'new' },
+  { id: 2, front: 'Photosynthesis', back: '光合作用 (n.)', mastery: 'new' },
+  { id: 3, front: '勾股定理公式', back: 'a² + b² = c²', mastery: 'new' },
+  { id: 4, front: '《静夜思》作者', back: '李白 (唐代)', mastery: 'new' },
+];
+
+// 知识图谱数据
+const KNOWLEDGE_NODES = [
+  { id: 'root', x: 400, y: 300, r: 40, label: '高中核心', color: '#4f46e5' },
+  { id: 'math', x: 250, y: 150, r: 35, label: '数学', color: '#0ea5e9' },
+  { id: 'chinese', x: 550, y: 150, r: 35, label: '语文', color: '#ec4899' },
+  { id: 'english', x: 250, y: 450, r: 35, label: '英语', color: '#f59e0b' },
+  { id: 'func', x: 150, y: 100, r: 25, label: '函数', color: '#0ea5e9' },
+  { id: 'geom', x: 150, y: 200, r: 25, label: '几何', color: '#0ea5e9' },
+  { id: 'poem', x: 650, y: 100, r: 25, label: '古诗词', color: '#ec4899' },
+  { id: 'comp', x: 650, y: 200, r: 25, label: '作文', color: '#ec4899' },
+];
+
+const KNOWLEDGE_LINKS = [
+  { from: 'root', to: 'math' }, { from: 'root', to: 'chinese' }, { from: 'root', to: 'english' },
+  { from: 'math', to: 'func' }, { from: 'math', to: 'geom' },
+  { from: 'chinese', to: 'poem' }, { from: 'chinese', to: 'comp' },
+];
+
+// 隐私标签映射表
+const PRIVACY_LABELS = {
+  phone: '手机号码',
+  email: '电子邮箱',
+  idCard: '身份证号',
+  bankCard: '银行卡号',
+  studentId: '学生学号',
+  studentName: '真实姓名',
+  modelLeak: '模型身份保护'
+};
+
+const StudentApp = ({ onExitPreview, privacyRules, onPrivacyTrigger, announcements, knowledgeFiles, customKeywords }) => {
+  const [sessions, setSessions] = useState([{ id: 1, title: '初次见面', messages: [], date: '今天' }]);
+  const [bookmarks, setBookmarks] = useState([]); 
+  const [currentSessionId, setCurrentSessionId] = useState(1);
+  const [input, setInput] = useState('');
+  const [mode, setMode] = useState(LEARNING_MODES[0]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [showModelMenu, setShowModelMenu] = useState(false);
+  const [showHistory, setShowHistory] = useState(true);
+  const [sidebarTab, setSidebarTab] = useState('history'); 
+  const [activeTab, setActiveTab] = useState('ai'); 
+  const [groupMessages, setGroupMessages] = useState([]); 
+  const [showTools, setShowTools] = useState(false); 
+  const [showNotices, setShowNotices] = useState(false);
+  const [attachment, setAttachment] = useState(null); 
+  const [audioPlaying, setAudioPlaying] = useState(null);
+  
+  // 新增功能状态
+  const [viewMode, setViewMode] = useState('chat'); // 'chat', 'graph', 'exam', 'flashcards'
+  const [examState, setExamState] = useState({ currentQ: 0, answers: {}, score: null, finished: false, analysis: null });
+  
+  // 闪卡状态
+  const [flashcards, setFlashcards] = useState(INITIAL_FLASHCARDS);
+  const [currentCardIndex, setCurrentCardIndex] = useState(0);
+  const [isCardFlipped, setIsCardFlipped] = useState(false);
+  const [isGeneratingCards, setIsGeneratingCards] = useState(false);
+
+  const fileInputRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  const textareaRef = useRef(null);
+  const audioRef = useRef(null); 
+
+  const currentSession = sessions.find(s => s.id === currentSessionId) || sessions[0] || { id: 0, title: 'New', messages: [], date: '' };
+  const messages = activeTab === 'ai' ? (currentSession.messages || []) : groupMessages;
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
+    }
+  }, [messages, isLoading, attachment, input, activeTab, viewMode]);
+
+  const updateCurrentSessionMessages = (newMessages) => {
+    setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: newMessages } : s));
+  };
+
+  const createNewSession = () => {
+    const newId = Date.now();
+    const newSession = { id: newId, title: '新对话', messages: [], date: '今天' };
+    setSessions([newSession, ...sessions]);
+    setCurrentSessionId(newId);
+    setActiveTab('ai'); 
+    setViewMode('chat');
+    if (window.innerWidth < 768) setShowHistory(false);
+  };
+
+  const sendMsg = async (overrideText = null) => {
+    const textToSend = overrideText || input;
+    if(!textToSend.trim() && !attachment) return;
+    
+    setInput(''); setAttachment(null); setShowTools(false);
+    
+    // Privacy Check
+    const { sanitizedText, hasSensitiveData, caughtItems } = localPrivacyFilter(textToSend, privacyRules, customKeywords);
+    const userDisplayMsg = { role: 'user', content: textToSend, privacyBlocked: hasSensitiveData, attachment };
+    const newMsgs = [...messages, userDisplayMsg];
+    updateCurrentSessionMessages(newMsgs);
+    
+    if (caughtItems.includes('模型身份') || caughtItems.includes('自定义敏感词')) { 
+       onPrivacyTrigger(caughtItems); 
+       setIsLoading(true); 
+       setTimeout(() => { 
+         updateCurrentSessionMessages([...newMsgs, { role: 'ai', content: `[系统安全拦截] 检测到敏感内容或违规查询。` }]); 
+         setIsLoading(false); 
+       }, 600); 
+       return; 
+    }
+
+    setIsLoading(true); if (hasSensitiveData) onPrivacyTrigger(caughtItems);
+    const apiMessages = newMsgs.map(m => ({ role: m.role, content: m.role === 'user' && m.privacyBlocked ? sanitizedText : m.content, attachment: m.attachment }));
+    const context = knowledgeFiles.map(f => `[文档: ${f.name}]`);
+    const res = await callGeminiAPI(apiMessages.slice(-10), mode.id, 'chat', context);
+    
+    if (currentSession.messages.length <= 0) { 
+        const newTitle = textToSend.length > 8 ? textToSend.slice(0, 8) + '...' : (textToSend || '文件上传'); 
+        setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, title: newTitle, messages: [...newMsgs, { role: 'ai', content: res }] } : s)); 
+    } else { 
+        updateCurrentSessionMessages([...newMsgs, { role: 'ai', content: res }]); 
+    }
+    setIsLoading(false);
+  };
+
+  const handleAiTool = async (type) => {
+    setShowTools(false); setIsLoading(true); let res = "";
+    if (type === 'suggest') res = await callGeminiAPI([], mode.id, 'suggest_topic');
+    else if (type === 'grade') { res = await callGeminiAPI([], mode.id, 'grade_essay', input || "请粘贴作文"); }
+    else if (type === 'image') { const prompt = input || `Generate an educational illustration for ${mode.name}`; const imageUrl = await callImagenAPI(prompt); if (imageUrl) { updateCurrentSessionMessages([...messages, { role: 'ai', content: `Here is an illustration for: ${prompt}`, image: imageUrl }]); } else { updateCurrentSessionMessages([...messages, { role: 'ai', content: "生成失败" }]); } setIsLoading(false); return; }
+    else if (type === 'mindmap') { res = await callGeminiAPI([], mode.id, 'generate_mindmap', input || "请指定主题"); }
+    else if (type === 'logic') { res = await callGeminiAPI([], mode.id, 'check_logic', input || "请输入论点"); }
+    else if (type === 'debate') { res = await callGeminiAPI([], mode.id, 'debate', input || "请指定辩题"); }
+    else if (type === 'socratic') { res = await callGeminiAPI([], mode.id, 'socratic', input || "请提出你的问题"); }
+    else if (type === 'polish') { const polished = await callGeminiAPI([], mode.id, 'polish_text', input); setInput(polished.trim()); setIsLoading(false); return; }
+    
+    updateCurrentSessionMessages([...messages, { role: 'ai', content: res }]); setIsLoading(false);
+  };
+
+  const generateFlashcards = () => {
+    setIsGeneratingCards(true);
+    setTimeout(() => {
+      setFlashcards(prev => [
+        ...prev,
+        { id: Date.now(), front: 'AI Generated Concept', back: 'AI 自动生成的解释...', mastery: 'new' },
+        { id: Date.now() + 1, front: 'New Terminology', back: '新的术语定义...', mastery: 'new' }
+      ]);
+      setIsGeneratingCards(false);
+    }, 1500);
+  };
+
+  // --- Feature 2: Knowledge Graph Renderer ---
+  const KnowledgeGraphView = () => (
+    <div className="flex-1 bg-slate-50 flex items-center justify-center p-8 overflow-hidden relative">
+      <div className="absolute top-4 left-4 bg-white/80 p-3 rounded-lg backdrop-blur text-sm border shadow-sm z-10">
+        <h3 className="font-bold text-indigo-800 flex items-center gap-2"><Network size={16}/> AI 知识图谱</h3>
+        <p className="text-slate-500 text-xs">点击节点向 AI 提问</p>
+      </div>
+      <svg viewBox="0 0 800 600" className="w-full h-full max-w-4xl max-h-[600px] border border-slate-200 bg-white rounded-2xl shadow-sm">
+        {KNOWLEDGE_LINKS.map((link, i) => {
+          const start = KNOWLEDGE_NODES.find(n => n.id === link.from);
+          const end = KNOWLEDGE_NODES.find(n => n.id === link.to);
+          return <line key={i} x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke="#cbd5e1" strokeWidth="2" />;
+        })}
+        {KNOWLEDGE_NODES.map((node) => (
+          <g key={node.id} onClick={() => { setViewMode('chat'); sendMsg(`请详细讲解一下"${node.label}"的核心知识点。`); }} className="cursor-pointer hover:opacity-80 transition-opacity">
+            <circle cx={node.x} cy={node.y} r={node.r} fill={node.color} className="shadow-lg drop-shadow-lg" />
+            <text x={node.x} y={node.y} dy=".3em" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">{node.label}</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+
+  // --- Feature 3: Exam System ---
+  const submitExam = async () => {
+     let score = 0;
+     const wrongOnes = [];
+     MOCK_EXAM_QUESTIONS.forEach(q => {
+       if (examState.answers[q.id] === q.answer) score += 25;
+       else wrongOnes.push({ question: q.question, yourAns: examState.answers[q.id] || '未填', correct: q.answer });
+     });
+     setExamState(prev => ({ ...prev, finished: true, score }));
+     
+     // AI Analysis
+     const analysis = await callGeminiAPI([], 'general', 'analyze_exam', wrongOnes);
+     setExamState(prev => ({ ...prev, analysis }));
+  };
+
+  const ExamView = () => (
+    <div className="flex-1 bg-slate-50 p-6 overflow-y-auto custom-scrollbar flex justify-center">
+      <div className="w-full max-w-3xl bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden flex flex-col min-h-[500px]">
+         <div className="p-6 border-b bg-gradient-to-r from-indigo-600 to-purple-600 text-white flex justify-between items-center">
+           <div>
+             <h2 className="text-xl font-bold flex items-center gap-2"><GraduationCap/> AI 沉浸式模拟考</h2>
+             <p className="text-indigo-100 text-sm opacity-80">本场考试共 4 题，总分 100 分</p>
+           </div>
+           {!examState.finished && <div className="bg-white/20 px-4 py-2 rounded-lg font-mono text-xl font-bold flex items-center gap-2"><Timer size={20}/> 14:59</div>}
+         </div>
+
+         {!examState.finished ? (
+           <div className="flex-1 p-8 flex flex-col justify-center">
+              <div className="mb-6">
+                <span className="text-indigo-600 font-bold text-sm bg-indigo-50 px-2 py-1 rounded mb-2 inline-block">第 {examState.currentQ + 1} / {MOCK_EXAM_QUESTIONS.length} 题</span>
+                <h3 className="text-2xl font-bold text-slate-800 leading-snug">{MOCK_EXAM_QUESTIONS[examState.currentQ].question}</h3>
+              </div>
+              <div className="space-y-3">
+                 {MOCK_EXAM_QUESTIONS[examState.currentQ].options.map(opt => {
+                   const optKey = opt.charAt(0);
+                   const isSelected = examState.answers[MOCK_EXAM_QUESTIONS[examState.currentQ].id] === optKey;
+                   return (
+                     <button key={opt} onClick={() => setExamState(p => ({...p, answers: {...p.answers, [MOCK_EXAM_QUESTIONS[p.currentQ].id]: optKey}}))} 
+                       className={`w-full text-left p-4 rounded-xl border-2 transition-all ${isSelected ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 hover:border-indigo-200 text-slate-600'}`}>
+                       {opt}
+                     </button>
+                   );
+                 })}
+              </div>
+              <div className="mt-8 flex justify-between">
+                 <button disabled={examState.currentQ === 0} onClick={() => setExamState(p => ({...p, currentQ: p.currentQ - 1}))} className="px-6 py-2 rounded-lg text-slate-500 hover:bg-slate-100 disabled:opacity-50">上一题</button>
+                 {examState.currentQ < MOCK_EXAM_QUESTIONS.length - 1 ? (
+                   <button onClick={() => setExamState(p => ({...p, currentQ: p.currentQ + 1}))} className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">下一题</button>
+                 ) : (
+                   <button onClick={submitExam} className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-bold shadow-lg shadow-green-200">提交试卷</button>
+                 )}
+              </div>
+           </div>
+         ) : (
+           <div className="flex-1 p-8 flex flex-col items-center justify-center text-center animate-in zoom-in-95 duration-300">
+              <div className="w-24 h-24 bg-yellow-100 rounded-full flex items-center justify-center text-yellow-600 mb-4 shadow-inner"><Award size={48}/></div>
+              <h3 className="text-2xl font-bold text-slate-800">考试结束</h3>
+              <div className="text-6xl font-black text-indigo-600 mt-2 mb-6">{examState.score} <span className="text-xl text-slate-400 font-medium">分</span></div>
+              
+              <div className="w-full bg-slate-50 p-6 rounded-xl text-left border border-slate-100 mb-6">
+                 <h4 className="font-bold text-slate-700 mb-2 flex items-center gap-2"><Sparkles size={16} className="text-indigo-500"/> AI 考后分析</h4>
+                 <div className="text-sm text-slate-600 leading-relaxed">
+                   {examState.analysis ? examState.analysis : <span className="flex items-center gap-2"><RefreshCw className="animate-spin" size={12}/> AI 正在分析错题...</span>}
+                 </div>
+              </div>
+              <button onClick={() => { setExamState({ currentQ: 0, answers: {}, score: null, finished: false, analysis: null }); setViewMode('chat'); }} className="px-8 py-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800">返回学习</button>
+           </div>
+         )}
+      </div>
+    </div>
+  );
+
+  // --- Feature 4: AI Flashcards (New) ---
+  const FlashcardView = () => (
+    <div className="flex-1 bg-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-blue-50 to-transparent pointer-events-none"></div>
+      
+      <div className="relative z-10 w-full max-w-xl">
+        <div className="mb-6 flex justify-between items-center">
+           <div>
+             <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Layers className="text-indigo-600"/> AI 智能记忆闪卡</h2>
+             <p className="text-slate-500 text-sm">已掌握: {flashcards.filter(c => c.mastery === 'mastered').length} / {flashcards.length}</p>
+           </div>
+           <button onClick={generateFlashcards} disabled={isGeneratingCards} className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-100 transition-all flex items-center gap-2">
+             {isGeneratingCards ? <RefreshCw className="animate-spin" size={16}/> : <BrainCircuit size={16}/>}
+             AI 生成新卡片
+           </button>
+        </div>
+
+        {/* Card Container */}
+        <div className="perspective-1000 w-full h-80 cursor-pointer group" onClick={() => setIsCardFlipped(!isCardFlipped)}>
+           <div className={`relative w-full h-full duration-500 transform-style-3d transition-all ${isCardFlipped ? 'rotate-y-180' : ''}`}>
+              {/* Front */}
+              <div className="absolute w-full h-full bg-white rounded-3xl shadow-xl border-2 border-white flex flex-col items-center justify-center p-8 backface-hidden group-hover:shadow-2xl transition-shadow">
+                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Question</span>
+                 <h3 className="text-3xl font-bold text-slate-800 text-center">{flashcards[currentCardIndex]?.front}</h3>
+                 <div className="absolute bottom-6 text-slate-400 text-xs flex items-center gap-1"><RotateCw size={12}/> 点击翻转</div>
+              </div>
+              {/* Back */}
+              <div className="absolute w-full h-full bg-gradient-to-br from-indigo-600 to-blue-600 rounded-3xl shadow-xl flex flex-col items-center justify-center p-8 backface-hidden rotate-y-180 text-white">
+                 <span className="text-xs font-bold text-indigo-200 uppercase tracking-wider mb-4">Answer</span>
+                 <h3 className="text-2xl font-bold text-center leading-relaxed">{flashcards[currentCardIndex]?.back}</h3>
+              </div>
+           </div>
+        </div>
+
+        {/* Controls */}
+        <div className="mt-8 flex justify-center gap-4">
+           <button onClick={() => { setIsCardFlipped(false); setTimeout(() => setCurrentCardIndex((prev) => (prev - 1 + flashcards.length) % flashcards.length), 150); }} className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-colors">
+              <ChevronDown className="rotate-90" size={20}/>
+           </button>
+           
+           <button onClick={() => { 
+             const newCards = [...flashcards];
+             newCards[currentCardIndex].mastery = 'review';
+             setFlashcards(newCards);
+             setIsCardFlipped(false);
+             setTimeout(() => setCurrentCardIndex((prev) => (prev + 1) % flashcards.length), 150);
+           }} className="flex-1 bg-white border-2 border-orange-100 text-orange-600 rounded-xl font-bold hover:bg-orange-50 hover:border-orange-200 transition-all flex items-center justify-center gap-2">
+             <XIcon size={18}/> 模糊 / 忘记
+           </button>
+
+           <button onClick={() => { 
+             const newCards = [...flashcards];
+             newCards[currentCardIndex].mastery = 'mastered';
+             setFlashcards(newCards);
+             setIsCardFlipped(false);
+             setTimeout(() => setCurrentCardIndex((prev) => (prev + 1) % flashcards.length), 150);
+           }} className="flex-1 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all flex items-center justify-center gap-2">
+             <Check size={18}/> 记住了
+           </button>
+           
+           <button onClick={() => { setIsCardFlipped(false); setTimeout(() => setCurrentCardIndex((prev) => (prev + 1) % flashcards.length), 150); }} className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-slate-50 hover:text-slate-600 transition-colors">
+              <ChevronDown className="-rotate-90" size={20}/>
+           </button>
+        </div>
+        
+        <div className="mt-6 flex justify-center gap-1">
+           {flashcards.map((_, i) => (
+             <div key={i} className={`h-1.5 rounded-full transition-all ${i === currentCardIndex ? 'w-6 bg-indigo-600' : 'w-1.5 bg-slate-200'}`}></div>
+           ))}
+        </div>
+      </div>
+      
+      <style>{`
+        .perspective-1000 { perspective: 1000px; }
+        .transform-style-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+      `}</style>
+    </div>
+  );
+
+  return (
+    <div className="flex h-screen bg-white font-sans text-gray-800 overflow-hidden relative">
+      {/* 侧边栏 (Student) */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-[260px] bg-[#000000] text-gray-100 flex flex-col transition-all duration-300 ${showHistory ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 ${!showHistory && 'md:!w-0 md:overflow-hidden'}`}>
+        <div className="p-3 flex items-center justify-between">
+          <button onClick={createNewSession} className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-lg hover:bg-[#212121] transition-colors text-sm text-white border border-transparent hover:border-white/10">
+            <div className="bg-white text-black rounded-full p-0.5"><Plus size={14}/></div><span className="font-medium">新对话</span>
+          </button>
+          <button onClick={() => setShowHistory(false)} className="p-2.5 hover:bg-[#212121] rounded-lg text-gray-400 hover:text-white ml-2"><LayoutDashboard size={18} className="rotate-90"/></button>
+        </div>
+        
+        {/* New Feature Navigation */}
+        <div className="px-3 py-2 space-y-1 border-b border-white/10 mb-2">
+           <button onClick={() => setViewMode('graph')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${viewMode === 'graph' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#212121]'}`}><Network size={16}/> 知识图谱</button>
+           <button onClick={() => setViewMode('exam')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${viewMode === 'exam' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#212121]'}`}><Target size={16}/> 模拟考试</button>
+           <button onClick={() => setViewMode('flashcards')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${viewMode === 'flashcards' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#212121]'}`}><Layers size={16}/> AI 智能闪卡</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-4 custom-scrollbar">
+           <div>
+             <div className="text-xs font-medium text-gray-500 px-3 py-2">近期对话</div>
+             {sessions.map(s => (
+               <div key={s.id} onClick={() => { setCurrentSessionId(s.id); setActiveTab('ai'); setViewMode('chat'); }} className={`group flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm cursor-pointer relative overflow-hidden ${currentSessionId === s.id && viewMode === 'chat' ? 'bg-[#212121]' : 'hover:bg-[#212121]'}`}>
+                 <MessageSquare size={16} className="text-gray-400 flex-shrink-0"/><span className="truncate flex-1 pr-6">{s.title}</span>
+               </div>
+             ))}
+           </div>
+        </div>
+        <div className="p-3 border-t border-white/10"><button onClick={onExitPreview} className="flex items-center gap-3 w-full px-3 py-3 hover:bg-[#212121] rounded-lg transition-colors text-sm"><div className="w-8 h-8 rounded bg-green-600 flex items-center justify-center text-white font-bold">L</div><div className="flex flex-col items-start text-left"><span className="font-medium">Student User</span><span className="text-xs text-gray-400">退出预览</span></div></button></div>
+      </aside>
+
+      <main className="flex-1 flex flex-col min-w-0 bg-slate-50">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-20 shadow-sm"><div className="flex items-center gap-4"><button onClick={()=>setSidebarOpen(!isSidebarOpen)} className="text-slate-500 hover:bg-slate-100 p-2 rounded-lg"><Menu size={20}/></button><h2 className="text-lg font-bold text-slate-800">{currentView === 'security' ? '安全风控中台' : currentView === 'privacy' ? '隐私规则配置' : currentView === 'encryption' ? '数据保险库' : currentView.toUpperCase()}</h2></div></header>
+        <div className="flex-1 overflow-auto p-6 scroll-smooth">{renderContent()}</div>
+      </main>
+    </div>
+  );
+};
+
+// ==========================================
+// part 3: 管理员后台 (AdminDashboard) 
+// ==========================================
+const INITIAL_NODES = [{ id: 1, name: '香港 HK-01 高速节点', type: 'Vmess', ip: '47.102.xx.xx', status: '在线', latency: '45ms', load: '32%' }, { id: 2, name: '日本 JP-Osaka 备用', type: 'Shadowsocks', ip: '103.20.xx.xx', status: '在线', latency: '89ms', load: '12%' }];
+// Updated INITIAL_USERS with tokenLimit
+const INITIAL_USERS = [
+  { id: 'STU_2024001', name: '张三', class: '高三(1)班', key: 'sk-lc-8921...', status: 'active', usage: '1.2M', tokenLimit: '5.0M', generatedAt: '2023-10-01', expiresAt: '2025-10-01T00:00:00' },
+  { id: 'STU_2024002', name: '李四', class: '高三(2)班', key: 'sk-lc-3342...', status: 'active', usage: '0.8M', tokenLimit: '2.0M', generatedAt: '2023-10-05', expiresAt: 'PERMANENT' }
+];
+const INITIAL_API_KEYS = [{ id: 1, provider: 'OpenAI', model: 'GPT-4o', alias: 'Main-HK-Route', keyMask: 'sk-...4f9a', balance: '$120.50', status: 'active', usage24h: '500k', weight: 10 }, { id: 3, provider: 'Google', model: 'Gemini Pro', alias: 'Flash-Speed', keyMask: 'AIza...88q1', balance: 'Unlimited', status: 'active', usage24h: '1.2M', weight: 8 }];
+const INITIAL_LOGS = [{ id: 100, time: '10:45:00', user: 'System', ip: 'Localhost', action: '隐私拦截', detail: '拦截敏感数据：手机号 (Student: 张三)', status: 'warning' }, { id: 101, time: '10:42:31', user: 'Admin', ip: '192.168.1.5', action: '节点更新', detail: '修改节点 JP-Osaka 权重', status: 'success' }];
+const INITIAL_FILES = [{ id: 1, name: '论语·学而篇解析.pdf', size: '2.4 MB', type: 'PDF', date: '2023-10-15' }, { id: 2, name: '高三数学函数考点.docx', size: '1.1 MB', type: 'DOCX', date: '2023-11-02' }];
+const INITIAL_ANNOUNCEMENTS = [{ id: 1, title: '系统维护通知', content: '将于本周六凌晨 2:00 进行节点扩容升级，预计耗时 30 分钟。', date: '2023-11-20' }, { id: 2, title: '新功能上线', content: 'AI 导师现在支持“作文润色”功能啦，快去试试吧！', date: '2023-11-18' }];
+const ALERT_LOGS = [
+  { type: 'warning', msg: 'Claude API 响应延迟过高', time: '2m ago' },
+  { type: 'error', msg: '检测到高频隐私泄露尝试 (IP: 192.168.x.x)', time: '15m ago' },
+  { type: 'info', msg: '系统自动扩容完成', time: '1h ago' },
+];
+
+export default function AdminDashboard() {
+  const [currentView, setCurrentView] = useState('dashboard');
+  const [nodes, setNodes] = useState(INITIAL_NODES);
+  const [users, setUsers] = useState(INITIAL_USERS);
+  const [apiKeys, setApiKeys] = useState(INITIAL_API_KEYS);
+  const [logs, setLogs] = useState(INITIAL_LOGS);
+  const [knowledgeFiles, setKnowledgeFiles] = useState(INITIAL_FILES);
+  const [announcements, setAnnouncements] = useState(INITIAL_ANNOUNCEMENTS);
+  
+  const [serverConfig, setServerConfig] = useState({ cpu: 'Intel Xeon Platinum 8375C (32 vCPU)', ram: '64 GB ECC DDR4', gpu: 'NVIDIA A10G (24GB)', disk: '2 TB NVMe SSD', bandwidth: '1 Gbps' });
+  const [serverStats, setServerStats] = useState({ cpu: 45, ram: 60, gpu: 20, temp: 42 });
+  const [privacyRules, setPrivacyRules] = useState({ phone: true, email: true, idCard: true, bankCard: false, studentId: true, studentName: true, modelLeak: true });
+  const [customKeywords, setCustomKeywords] = useState(['内部项目', 'ProjectX']); // 动态关键词
+  const [newKeyword, setNewKeyword] = useState('');
+  const [privacyStats, setPrivacyStats] = useState({ blockedCount: 12, lastBlocked: '10分钟前' });
+  
+  const [showScanner, setShowScanner] = useState(false);
+  const [showStudentPreview, setShowStudentPreview] = useState(false);
+  const [isSidebarOpen, setSidebarOpen] = useState(true);
+  const [showUserModal, setShowUserModal] = useState(false);
+  // Add tokenLimit to form
+  const [newUserForm, setNewUserForm] = useState({ name: '', class: '', autoName: true, durationDays: 365, tokenLimit: '5.0M' }); 
+  const [newAnnouncement, setNewAnnouncement] = useState('');
+  const [isDraftingNotice, setIsDraftingNotice] = useState(false);
+  const [showApiModal, setShowApiModal] = useState(false);
+  const [newApiForm, setNewApiForm] = useState({ provider: 'OpenAI', model: '', key: '', alias: '', baseUrl: '' });
+
+  const [showExtendModal, setShowExtendModal] = useState(false);
+  const [targetUserForExtension, setTargetUserForExtension] = useState(null);
+  const [extensionDuration, setExtensionDuration] = useState(30); 
+  const [showNodeModal, setShowNodeModal] = useState(false);
+  const [newNodeForm, setNewNodeForm] = useState({ name: '', type: 'Vmess', ip: '', port: '' });
+  const [wafRules, setWafRules] = useState({ sql: true, xss: true, ddos: true, bot: false });
+
+  // New state for user logs modal
+  const [showUserLogsModal, setShowUserLogsModal] = useState(false);
+  const [targetUserForLogs, setTargetUserForLogs] = useState(null);
+
+  // New state for editing user permissions
+  const [showEditUserModal, setShowEditUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+
+  // Risk Control State
+  const [riskQps, setRiskQps] = useState(60);
+  const [riskIp, setRiskIp] = useState(true);
+  const [riskUser, setRiskUser] = useState(true);
+
+  // Encryption Vault State
+  const [vaultStatus, setVaultStatus] = useState('locked'); // 'locked', 'unlocked'
+  const [encryptInput, setEncryptInput] = useState('');
+  const [encryptedOutput, setEncryptedOutput] = useState('');
+
+  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [isAnalyzingLogs, setIsAnalyzingLogs] = useState(false);
+  const [aiNodeAnalysis, setAiNodeAnalysis] = useState(null);
+  const [isOptimizingNodes, setIsOptimizingNodes] = useState(false);
+  const [aiServerAnalysis, setAiServerAnalysis] = useState(null);
+  const [isAnalyzingServer, setIsAnalyzingServer] = useState(false);
+  const [aiFileAnalysis, setAiFileAnalysis] = useState(null);
+
+  useEffect(() => { const i = setInterval(() => setServerStats({ cpu: Math.random()*100|0, ram: Math.random()*100|0, gpu: Math.random()*100|0, temp: 40+Math.random()*20|0 }), 3000); return () => clearInterval(i); }, []);
+
+  const addLog = (user, action, detail, status = 'success') => setLogs(p => [{ id: Date.now(), time: new Date().toLocaleTimeString(), user, action, detail, status }, ...p]);
+  const handlePrivacyTrigger = (items) => { setPrivacyStats(p => ({ blockedCount: p.blockedCount + 1, lastBlocked: '刚刚' })); addLog('System', 'Privacy Block', `拦截敏感信息: ${items.join(', ')}`, 'warning'); };
+  const handleDeleteUser = (id) => { if(window.confirm('删除?')) setUsers(users.filter(u=>u.id!==id)); };
+  const toggleUserStatus = (id) => setUsers(users.map(u=>u.id===id?{...u, status: u.status==='active'?'banned':'active'}:u));
+  const openAddUserModal = () => { setNewUserForm({ name: '', class: '', autoName: true, durationDays: 365, tokenLimit: '5.0M' }); setShowUserModal(true); };
+  
+  // Updated confirmAddUser to include tokenLimit
+  const confirmAddUser = () => { const id = `STU_${Date.now()}`; let exp = 'PERMANENT'; if(newUserForm.durationDays!=='PERMANENT'){ const d = new Date(); d.setDate(d.getDate() + Number(newUserForm.durationDays)); exp = d.toISOString(); } setUsers([{ id, name: newUserForm.name||'Student', class: newUserForm.class, key: 'sk-new', status: 'active', usage: '0', tokenLimit: newUserForm.tokenLimit || '5.0M', generatedAt: new Date().toLocaleDateString(), expiresAt: exp }, ...users]); setShowUserModal(false); };
+  const handleOpenExtendModal = (u) => { setTargetUserForExtension(u); setExtensionDuration(30); setShowExtendModal(true); };
+  const handleExtendUser = () => { setUsers(users.map(u => u.id === targetUserForExtension.id ? { ...u, expiresAt: extensionDuration === 'PERMANENT' ? 'PERMANENT' : new Date(new Date(u.expiresAt === 'PERMANENT' ? Date.now() : u.expiresAt).getTime() + extensionDuration * 86400000).toISOString() } : u)); setShowExtendModal(false); };
+  
+  // Handler for opening user logs
+  const handleViewUserLogs = (user) => {
+    setTargetUserForLogs(user);
+    setShowUserLogsModal(true);
+  };
+
+  // Handler for opening edit modal
+  const handleOpenEditUserModal = (user) => {
+    setEditingUser({...user});
+    setShowEditUserModal(true);
+  };
+
+  // Handler for saving edited user
+  const handleSaveUser = () => {
+    setUsers(users.map(u => u.id === editingUser.id ? editingUser : u));
+    setShowEditUserModal(false);
+    addLog('Admin', '权限变更', `修改用户 ${editingUser.name} 权限 (额度: ${editingUser.tokenLimit})`);
+  };
+
+  const handleSimulateEncryption = () => {
+    if (!encryptInput) return;
+    // Simulate encryption process
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
+    let result = "AES-256-GCM::";
+    for (let i = 0; i < encryptInput.length * 2; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setEncryptedOutput(result);
+  };
+
+  const handleDeleteApiKey = (id) => setApiKeys(apiKeys.filter(k=>k.id!==id));
+  const confirmAddApiKey = () => { setApiKeys([...apiKeys, { id: Date.now(), ...newApiForm, balance: 'Active', status: 'active', usage24h: '0', weight: 10 }]); setShowApiModal(false); };
+  const handleScanQRCode = () => { setShowScanner(true); setTimeout(() => { setShowScanner(false); setNodes([...nodes, { id: Date.now(), name: '扫码节点', type: 'Vmess', ip: '1.1.1.1', status: '在线', latency: '50ms', load: '0%' }]); }, 1000); };
+  const confirmAddNode = () => { setNodes([...nodes, { id: Date.now(), ...newNodeForm, status: '在线', latency: '10ms', load: '0%' }]); setShowNodeModal(false); };
+  const handlePostAnnouncement = () => { setAnnouncements([{ id: Date.now(), title: '通知', content: newAnnouncement, date: '刚刚' }, ...announcements]); setNewAnnouncement(''); };
+  // AI Placeholders
+  const handleAiLogAnalysis = () => { setIsAnalyzingLogs(true); setTimeout(() => { setAiAnalysis('AI分析完成：系统运行正常。异常检测模型未发现高危入侵迹象。'); setIsAnalyzingLogs(false); }, 1500); };
+  const handleAiNodeOptimization = () => { setIsOptimizingNodes(true); setTimeout(() => { setAiNodeAnalysis('AI建议：节点负载均衡良好。'); setIsOptimizingNodes(false); }, 1000); };
+  const handleAiServerAnalysis = () => { setIsAnalyzingServer(true); setTimeout(() => { setAiServerAnalysis('AI诊断报告：CPU负载平稳，内存使用率略高（建议关注 Java 进程），GPU 温度正常。无需扩容。'); setIsAnalyzingServer(false); }, 2000); };
+  const handleAiFileAnalysis = (f) => { setAiFileAnalysis({ id: f.id, content: 'AI正在生成摘要...', loading: true }); setTimeout(() => { setAiFileAnalysis({ id: f.id, content: `AI 智能摘要：这份文档主要讲解了${f.name.split('.')[0]}的核心概念，适合高三复习使用。重点包含了考点解析与例题分析。`, loading: false })}, 1500); };
+  const handleAiDraftAnnouncement = () => { setIsDraftingNotice(true); setTimeout(() => { setNewAnnouncement('这是一份由AI起草的正式系统公告...'); setIsDraftingNotice(false); }, 1500); };
+  
+  // 隐私动态管理
+  const addCustomKeyword = () => { if(newKeyword.trim() && !customKeywords.includes(newKeyword.trim())) { setCustomKeywords([...customKeywords, newKeyword.trim()]); setNewKeyword(''); } };
+  const removeCustomKeyword = (kw) => setCustomKeywords(customKeywords.filter(k => k !== kw));
+
+  if (showStudentPreview) return <StudentApp onExitPreview={() => setShowStudentPreview(false)} privacyRules={privacyRules} onPrivacyTrigger={handlePrivacyTrigger} announcements={announcements} knowledgeFiles={knowledgeFiles} customKeywords={customKeywords} />;
+
+  // Modals
+  const AddUserM = () => (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><div className="bg-white p-6 rounded-xl w-96 space-y-4"><h3 className="font-bold">添加用户</h3><input className="w-full border p-2 rounded" placeholder="姓名" value={newUserForm.name} onChange={e=>setNewUserForm({...newUserForm, name:e.target.value})}/><select className="w-full border p-2 rounded" value={newUserForm.class} onChange={e=>setNewUserForm({...newUserForm, class:e.target.value})}><option>默认班级</option><option>高三(1)</option></select><div className="flex gap-2 items-center"><input type="number" className="w-full border p-2 rounded" placeholder="有效天数" value={newUserForm.durationDays} onChange={e=>setNewUserForm({...newUserForm, durationDays:e.target.value})}/><span>天</span></div><div className="flex gap-2 items-center"><span className="text-sm font-bold w-24">Token 额度:</span><input className="flex-1 border p-2 rounded" placeholder="例如: 5.0M" value={newUserForm.tokenLimit} onChange={e=>setNewUserForm({...newUserForm, tokenLimit:e.target.value})}/></div><div className="flex gap-2"><button onClick={()=>setShowUserModal(false)} className="flex-1 border p-2 rounded">取消</button><button onClick={confirmAddUser} className="flex-1 bg-indigo-600 text-white p-2 rounded">确定</button></div></div></div>);
+  const ExtendM = () => (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><div className="bg-white p-6 rounded-xl w-96 space-y-4"><h3 className="font-bold">续期: {targetUserForExtension?.name}</h3><div className="flex gap-2 items-center"><input type="number" className="w-full border p-2 rounded" value={extensionDuration} onChange={e=>setExtensionDuration(e.target.value)}/><span>天</span></div><div className="flex gap-2"><button onClick={()=>setShowExtendModal(false)} className="flex-1 border p-2 rounded">取消</button><button onClick={handleExtendUser} className="flex-1 bg-indigo-600 text-white p-2 rounded">确定</button></div></div></div>);
+  
+  // New Edit User Modal
+  const EditUserM = () => (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white p-6 rounded-xl w-96 space-y-4">
+        <h3 className="font-bold flex items-center gap-2"><Settings size={18}/> 编辑用户权限</h3>
+        
+        <div>
+          <label className="text-xs font-bold text-slate-500 mb-1 block">姓名</label>
+          <input className="w-full border p-2 rounded" value={editingUser.name} onChange={e=>setEditingUser({...editingUser, name:e.target.value})}/>
+        </div>
+        
+        <div>
+          <label className="text-xs font-bold text-slate-500 mb-1 block">班级</label>
+          <input className="w-full border p-2 rounded" value={editingUser.class} onChange={e=>setEditingUser({...editingUser, class:e.target.value})}/>
+        </div>
+
+        <div>
+          <label className="text-xs font-bold text-slate-500 mb-1 block">Token 额度限制</label>
+          <input className="w-full border p-2 rounded" value={editingUser.tokenLimit} onChange={e=>setEditingUser({...editingUser, tokenLimit:e.target.value})}/>
+          <p className="text-xs text-slate-400 mt-1">输入 'Unlimited' 代表无限制</p>
+        </div>
+
+        <div className="flex gap-2 mt-4">
+          <button onClick={()=>setShowEditUserModal(false)} className="flex-1 border p-2 rounded hover:bg-slate-50">取消</button>
+          <button onClick={handleSaveUser} className="flex-1 bg-indigo-600 text-white p-2 rounded hover:bg-indigo-700">保存修改</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const AddNodeM = () => (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><div className="bg-white p-6 rounded-xl w-96 space-y-4"><h3 className="font-bold">手动添加节点</h3><input className="w-full border p-2 rounded" placeholder="名称" value={newNodeForm.name} onChange={e=>setNewNodeForm({...newNodeForm, name:e.target.value})}/><input className="w-full border p-2 rounded" placeholder="IP/域名" value={newNodeForm.ip} onChange={e=>setNewNodeForm({...newNodeForm, ip:e.target.value})}/><div className="flex gap-2"><button onClick={()=>setShowNodeModal(false)} className="flex-1 border p-2 rounded">取消</button><button onClick={confirmAddNode} className="flex-1 bg-indigo-600 text-white p-2 rounded">确定</button></div></div></div>);
+  const ScannerM = () => (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"><div className="bg-slate-900 p-8 rounded-xl text-center"><div className="w-48 h-48 bg-slate-800 mx-auto flex items-center justify-center mb-4"><QrCode className="text-slate-500" size={48}/></div><p className="text-white mb-4">请扫描节点二维码</p><button onClick={()=>setShowScanner(false)} className="text-slate-400">取消</button></div></div>);
+  const AddApiM = () => (<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><div className="bg-white p-6 rounded-xl w-96 space-y-4"><h3 className="font-bold">添加 API 密钥</h3><select className="w-full border p-2 rounded" value={newApiForm.provider} onChange={e=>setNewApiForm({...newApiForm, provider:e.target.value})}><option value="OpenAI">OpenAI</option><option value="Google">Google (Gemini)</option><option value="Anthropic">Anthropic</option></select><input className="w-full border p-2 rounded" placeholder="API Key" value={newApiForm.key} onChange={e=>setNewApiForm({...newApiForm, key:e.target.value})}/><input className="w-full border p-2 rounded" placeholder="Base URL (可选)" value={newApiForm.baseUrl} onChange={e=>setNewApiForm({...newApiForm, baseUrl:e.target.value})}/><div className="flex gap-2"><button onClick={()=>setShowApiModal(false)} className="flex-1 border p-2 rounded">取消</button><button onClick={confirmAddApiKey} className="flex-1 bg-indigo-600 text-white p-2 rounded">添加</button></div></div></div>);
+
+  // New User Logs Modal
+  const UserLogsM = () => {
+    // Mock logs for the user
+    const [activeLogTab, setActiveLogTab] = useState('api'); // 'api' or 'security'
+    const [showDecrypted, setShowDecrypted] = useState(false);
+
+    const userLogs = [
+      { id: 1, time: '10:42:15', model: 'Gemini 1.5 Pro', type: 'Chat', tokens: 450, content: '解释一下量子纠缠的基本原理...', status: 'success' },
+      { id: 2, time: '10:35:22', model: 'GPT-4o', type: 'Image', tokens: 0, content: '生成一张未来城市的插画', status: 'success' },
+      { id: 3, time: '09:15:00', model: 'Gemini Flash', type: 'Polish', tokens: 120, content: '帮我润色这段英语作文：Yesterday I go to...', status: 'success' },
+      { id: 4, time: 'Yesterday', model: 'Claude 3.5', type: 'Chat', tokens: 890, content: '分析《红楼梦》中林黛玉的性格特点', status: 'success' },
+      { id: 5, time: 'Yesterday', model: 'Gemini 1.5 Pro', type: 'Chat', tokens: 320, content: '[敏感内容拦截]', status: 'blocked' },
+    ];
+
+    const deviceLogs = [
+        { id: 101, device: 'iPhone 13 (iOS 17.2)', ip: '202.102.112.xx', location: '上海市, 中国', lastActive: '10 分钟前', status: 'trusted', fingerprint: 'a1b2-c3d4-xxxx-xxxx' },
+        { id: 102, device: 'MacBook Pro (M2)', ip: '114.221.144.xx', location: '南京市, 中国', lastActive: '3 天前', status: 'trusted', fingerprint: 'e5f6-g7h8-xxxx-xxxx' },
+        { id: 103, device: 'Windows 11 PC', ip: '58.210.33.xx', location: '苏州市, 中国', lastActive: '2 周前', status: 'expired', fingerprint: 'i9j0-k1l2-xxxx-xxxx' },
+    ];
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 animate-in fade-in duration-200">
+        <div className="bg-white rounded-xl w-[700px] max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+            <div>
+              <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                <FileSearch className="text-indigo-600" size={20}/> 
+                学员详细审计日志
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                正在审计用户: <span className="font-bold text-indigo-600">{targetUserForLogs?.name} ({targetUserForLogs?.id})</span>
+              </p>
+            </div>
+            <button onClick={() => setShowUserLogsModal(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-200 transition-colors"><X size={20}/></button>
+          </div>
+
+          {/* Security Banner */}
+          <div className="bg-emerald-50 px-5 py-2 border-b border-emerald-100 flex items-center justify-between text-xs text-emerald-700">
+             <div className="flex items-center gap-2 font-medium">
+                <ShieldCheck size={14}/>
+                数据已启用端对端加密 (E2EE) 及储存层 AES-256 加密
+             </div>
+             <span className="bg-white/50 px-2 py-0.5 rounded border border-emerald-200 text-[10px]">TLS 1.3 Secured</span>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex px-5 pt-4 border-b border-slate-100 gap-6">
+             <button onClick={() => setActiveLogTab('api')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeLogTab === 'api' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>API 调用记录</button>
+             <button onClick={() => setActiveLogTab('security')} className={`pb-3 text-sm font-bold border-b-2 transition-colors ${activeLogTab === 'security' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>安全审计 & 设备绑定</button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-0 bg-white">
+            {activeLogTab === 'api' ? (
+                <>
+                    <table className="w-full text-sm text-left">
+                    <thead className="bg-slate-50 text-slate-500 sticky top-0 z-10 border-b border-slate-100">
+                        <tr>
+                        <th className="px-5 py-3 font-medium">时间</th>
+                        <th className="px-5 py-3 font-medium">模型</th>
+                        <th className="px-5 py-3 font-medium">类型</th>
+                        <th className="px-5 py-3 font-medium">Token 消耗</th>
+                        <th className="px-5 py-3 font-medium">请求内容摘要</th>
+                        <th className="px-5 py-3 font-medium text-right">状态</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                        {userLogs.map((log) => (
+                        <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-5 py-3 text-slate-500 font-mono text-xs">{log.time}</td>
+                            <td className="px-5 py-3">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                                {log.model}
+                            </span>
+                            </td>
+                            <td className="px-5 py-3 text-slate-600">{log.type}</td>
+                            <td className="px-5 py-3 font-mono text-slate-500">{log.tokens > 0 ? log.tokens : '-'}</td>
+                            <td className="px-5 py-3 text-slate-600 max-w-[150px] truncate" title={log.content}>
+                            {log.content}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold ${log.status === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                                {log.status === 'success' ? <CheckCircle size={10}/> : <ShieldAlert size={10}/>}
+                                {log.status === 'success' ? '成功' : '拦截'}
+                            </span>
+                            </td>
+                        </tr>
+                        ))}
+                    </tbody>
+                    </table>
+                    <div className="p-8 text-center text-xs text-slate-400">
+                    仅展示最近 30 天的调用记录。更多历史数据请前往“系统审计日志”模块查询。
+                    </div>
+                </>
+            ) : (
+                <div className="p-5">
+                    <div className="flex justify-between items-center mb-4">
+                        <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                            <Fingerprint size={16}/> 绑定设备列表
+                        </h4>
+                        <button 
+                            onClick={() => setShowDecrypted(!showDecrypted)}
+                            className={`text-xs px-3 py-1.5 rounded border flex items-center gap-1 transition-all ${showDecrypted ? 'bg-red-50 border-red-200 text-red-600' : 'bg-slate-50 border-slate-200 text-slate-600'}`}
+                        >
+                            {showDecrypted ? <EyeOff size={12}/> : <EyeIcon size={12}/>}
+                            {showDecrypted ? '隐藏敏感信息' : '请求解密查看'}
+                        </button>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        {deviceLogs.map(dev => (
+                            <div key={dev.id} className="border border-slate-200 rounded-xl p-4 flex items-center justify-between hover:border-indigo-200 transition-colors group">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${dev.device.includes('iPhone') || dev.device.includes('Android') ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-500'}`}>
+                                        {dev.device.includes('iPhone') || dev.device.includes('Android') ? <Smartphone size={20}/> : <Laptop size={20}/>}
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-slate-800 text-sm">{dev.device}</div>
+                                        <div className="text-xs text-slate-500 mt-1 flex items-center gap-3">
+                                            <span className="flex items-center gap-1"><MapPin size={10}/> {dev.location}</span>
+                                            <span className="flex items-center gap-1"><Clock size={10}/> {dev.lastActive}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-xs font-mono text-slate-400 mb-1 flex items-center justify-end gap-1">
+                                        IP: {showDecrypted ? <span className="text-slate-700 font-bold">{dev.ip}</span> : <span>{dev.ip.replace(/\d+\.\d+$/, '***.***')} <Lock size={8} className="inline"/></span>}
+                                    </div>
+                                    <div className="text-xs font-mono text-slate-400 mb-1">
+                                        FP: {showDecrypted ? dev.fingerprint : '🔒 Encrypted Hash'}
+                                    </div>
+                                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${dev.status === 'trusted' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                                        {dev.status === 'trusted' ? '已信任设备' : '已过期'}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="mt-6 p-4 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-500">
+                        <h5 className="font-bold text-slate-700 mb-2 flex items-center gap-1"><Shield size={12}/> 安全说明</h5>
+                        <ul className="list-disc pl-4 space-y-1">
+                            <li>所有设备指纹 (Fingerprint) 均经过不可逆哈希处理。</li>
+                            <li>IP 地址存储于加密数据库中，仅授权管理员在审计模式下解密查看。</li>
+                            <li>若发现异常设备登录，建议立即重置学员密钥。</li>
+                        </ul>
+                    </div>
+                </div>
+            )}
+          </div>
+          
+          <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+            <button onClick={() => setShowUserLogsModal(false)} className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 hover:text-slate-900 transition-colors shadow-sm">
+              关闭
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Render Content
+  const renderContent = () => {
+    switch (currentView) {
+      case 'dashboard': return (
+        <div className="space-y-6">
+          <div className="grid grid-cols-4 gap-6">{[{l:'总用户',v:users.length,c:'text-slate-800'},{l:'隐私拦截',v:privacyStats.blockedCount,c:'text-rose-600'},{l:'系统负载',v:serverStats.cpu+'%',c:'text-amber-500'},{l:'成本',v:'¥342',c:'text-slate-800'}].map((i,k)=>(<div key={k} className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm"><div className="text-xs font-bold text-slate-500 uppercase">{i.l}</div><div className={`text-3xl font-bold mt-2 ${i.c}`}>{i.v}</div></div>))}</div>
+          <div className="grid grid-cols-3 gap-6"><div className="col-span-2 bg-white p-6 rounded-xl border border-slate-100"><h3 className="font-bold mb-4">拦截趋势</h3><div className="h-48 flex items-end gap-1">{[2,5,3,8,4,6,2,9,5,3,4,6,8,5,2,4,6,3,7,5].map((h,i)=>(<div key={i} style={{height:h*10+'%'}} className="flex-1 bg-indigo-50 hover:bg-indigo-500 rounded-t transition-colors"></div>))}</div></div><div className="bg-white p-6 rounded-xl border border-slate-100"><h3 className="font-bold mb-4">发布公告</h3><textarea className="w-full border rounded-lg p-2 h-24 mb-2" value={newAnnouncement} onChange={e=>setNewAnnouncement(e.target.value)}></textarea><div className="flex gap-2"><button onClick={handleAiDraftAnnouncement} className="flex-1 bg-slate-100 text-indigo-600 rounded text-sm font-bold flex items-center justify-center gap-1 hover:bg-indigo-50">{isDraftingNotice?<RefreshCw className="animate-spin" size={14}/>:<Sparkles size={14}/>} AI起草</button><button onClick={handlePostAnnouncement} className="flex-1 bg-indigo-600 text-white rounded text-sm font-bold hover:bg-indigo-700">发布</button></div></div></div>
+        </div>
+      );
+      case 'security': return (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+             {/* Security Center - L3-L7 WAF */}
+             <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+                <div className="flex items-center justify-between mb-6">
+                   <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><ShieldCheck className="text-emerald-500"/> WAF 防护中心</h3>
+                   <span className="px-2 py-1 bg-emerald-50 text-emerald-600 text-xs font-bold rounded-md border border-emerald-100 flex items-center gap-1"><Activity size={10} className="animate-pulse"/> 系统正常运行</span>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                     <div>
+                        <div className="font-bold text-sm text-slate-700">SQL 注入拦截</div>
+                        <div className="text-xs text-slate-400">拦截恶意数据库查询请求</div>
+                     </div>
+                     <button onClick={()=>setWafRules({...wafRules, sql: !wafRules.sql})} className={`w-10 h-5 rounded-full relative transition-colors ${wafRules.sql?'bg-emerald-500':'bg-slate-300'}`}><div className={`w-3 h-3 bg-white rounded-full absolute top-1 transition-all ${wafRules.sql?'right-1':'left-1'}`}></div></button>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                     <div>
+                        <div className="font-bold text-sm text-slate-700">XSS 跨站脚本防护</div>
+                        <div className="text-xs text-slate-400">过滤恶意脚本输入</div>
+                     </div>
+                     <button onClick={()=>setWafRules({...wafRules, xss: !wafRules.xss})} className={`w-10 h-5 rounded-full relative transition-colors ${wafRules.xss?'bg-emerald-500':'bg-slate-300'}`}><div className={`w-3 h-3 bg-white rounded-full absolute top-1 transition-all ${wafRules.xss?'right-1':'left-1'}`}></div></button>
+                  </div>
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                     <div>
+                        <div className="font-bold text-sm text-slate-700">DDoS 流量清洗</div>
+                        <div className="text-xs text-slate-400">自动识别并清洗异常流量</div>
+                     </div>
+                     <button onClick={()=>setWafRules({...wafRules, ddos: !wafRules.ddos})} className={`w-10 h-5 rounded-full relative transition-colors ${wafRules.ddos?'bg-emerald-500':'bg-slate-300'}`}><div className={`w-3 h-3 bg-white rounded-full absolute top-1 transition-all ${wafRules.ddos?'right-1':'left-1'}`}></div></button>
+                  </div>
+                </div>
+             </div>
+
+             {/* Security Center - Application Layer Risk Control */}
+             <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-6"><Siren className="text-orange-500"/> 风控中台 (API 限流)</h3>
+                
+                <div className="space-y-6">
+                   <div>
+                      <div className="flex justify-between mb-2">
+                         <span className="text-sm font-bold text-slate-600">单IP请求频率 (QPS)</span>
+                         <span className="text-sm font-mono text-indigo-600">{riskQps} req/s</span>
+                      </div>
+                      <input type="range" min="10" max="200" value={riskQps} onChange={(e)=>setRiskQps(e.target.value)} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"/>
+                   </div>
+
+                   <div className="grid grid-cols-2 gap-4">
+                      <div className={`p-4 rounded-xl border-2 transition-all cursor-pointer ${riskIp ? 'border-indigo-600 bg-indigo-50' : 'border-slate-100 hover:border-indigo-200'}`} onClick={() => setRiskIp(!riskIp)}>
+                         <div className="flex items-center gap-2 mb-2 font-bold text-slate-700"><Globe size={16}/> IP 封禁</div>
+                         <div className="text-xs text-slate-500">自动封禁异常高频 IP</div>
+                      </div>
+                      <div className={`p-4 rounded-xl border-2 transition-all cursor-pointer ${riskUser ? 'border-indigo-600 bg-indigo-50' : 'border-slate-100 hover:border-indigo-200'}`} onClick={() => setRiskUser(!riskUser)}>
+                         <div className="flex items-center gap-2 mb-2 font-bold text-slate-700"><UserCheck size={16}/> 账号风控</div>
+                         <div className="text-xs text-slate-500">异常行为自动冻结</div>
+                      </div>
+                   </div>
+
+                   <div className="pt-2 border-t border-slate-100">
+                      <button className="w-full py-3 bg-red-50 text-red-600 border border-red-100 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-red-100 transition-colors">
+                         <Flame size={18}/> 一键全站熔断 (Emergency)
+                      </button>
+                   </div>
+                </div>
+             </div>
+
+             {/* Security Center - Identity & Weak Password Compensation */}
+             <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-4"><Fingerprint className="text-purple-500"/> 身份与访问控制</h3>
+                <div className="p-4 bg-purple-50 rounded-xl border border-purple-100 mb-4">
+                   <h4 className="font-bold text-purple-900 text-sm mb-1 flex items-center gap-2"><LockKeyhole size={14}/> 弱密码补偿策略生效中</h4>
+                   <p className="text-xs text-purple-700 leading-relaxed">针对学生自定义密码强度不足的风险，系统已自动启用**行为风控引擎**。任何非惯用设备/IP登录将触发二次验证。</p>
+                </div>
+                <div className="flex items-center justify-between py-2 border-b border-slate-50">
+                   <span className="text-sm text-slate-600">管理员 MFA 强制验证</span>
+                   <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded">已开启</span>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                   <span className="text-sm text-slate-600">异常地理位置登录拦截</span>
+                   <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded">已开启</span>
+                </div>
+             </div>
+
+             {/* Security Center - KMS & Data */}
+             <div className="bg-white p-6 rounded-xl border border-slate-100 shadow-sm">
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2 mb-4"><Database className="text-blue-500"/> 数据安全与密钥 (KMS)</h3>
+                
+                <div className="space-y-3">
+                   <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                         <Key size={18} className="text-slate-400"/>
+                         <div>
+                            <div className="text-sm font-bold text-slate-700">主密钥 (Master Key)</div>
+                            <div className="text-xs text-slate-400">上次轮换: 3天前</div>
+                         </div>
+                      </div>
+                      <button className="text-xs bg-white border px-2 py-1 rounded hover:bg-slate-50">轮换</button>
+                   </div>
+                   
+                   <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                      <div className="flex items-center gap-3">
+                         <Database size={18} className="text-slate-400"/>
+                         <div>
+                            <div className="text-sm font-bold text-slate-700">数据库字段加密</div>
+                            <div className="text-xs text-slate-400">AES-256 (手机号/身份证)</div>
+                         </div>
+                      </div>
+                      <span className="text-green-500"><CheckCircle size={16}/></span>
+                   </div>
+                </div>
+             </div>
+          </div>
+        </div>
+      );
+      case 'encryption': return (
+        <div className="max-w-4xl mx-auto space-y-8 py-4">
+           {/* Header */}
+           <div className="text-center space-y-2">
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-slate-900 rounded-full mb-4 shadow-xl border-4 border-indigo-500/30">
+                 <ShieldCheck size={32} className="text-indigo-400"/>
+              </div>
+              <h2 className="text-2xl font-bold text-slate-800 tracking-tight">零信任数据保险库</h2>
+              <p className="text-slate-500 text-sm max-w-lg mx-auto">采用 AES-256-GCM 与后量子密码学 (Kyber-1024) 混合加密架构。即使物理服务器失窃，数据依然不可破解。</p>
+           </div>
+
+           {/* Vault Status Card */}
+           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                 <div className="flex items-center gap-4">
+                    <div className={`w-3 h-3 rounded-full ${vaultStatus === 'locked' ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`}></div>
+                    <div>
+                       <div className="font-bold text-slate-800">保险库状态: {vaultStatus === 'locked' ? '已封存 (Sealed)' : '活跃 (Active)'}</div>
+                       <div className="text-xs text-slate-400 font-mono mt-1">UUID: 7f8c-9d2a-1e4b-5a0f</div>
+                    </div>
+                 </div>
+                 <button onClick={() => setVaultStatus(vaultStatus === 'locked' ? 'unlocked' : 'locked')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${vaultStatus === 'locked' ? 'bg-slate-900 text-white hover:bg-slate-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                    {vaultStatus === 'locked' ? <KeyRound size={16}/> : <Lock size={16}/>}
+                    {vaultStatus === 'locked' ? '解锁保险库' : '立即封存'}
+                 </button>
+              </div>
+              
+              <div className="p-6 grid grid-cols-3 gap-6 bg-slate-50">
+                 <div className="text-center p-4 bg-white rounded-xl border border-slate-100 shadow-sm">
+                    <div className="text-xs text-slate-400 uppercase font-bold mb-2">加密算法</div>
+                    <div className="text-indigo-600 font-bold font-mono">Kyber-1024</div>
+                    <div className="text-[10px] text-slate-400 mt-1">Quantum Safe</div>
+                 </div>
+                 <div className="text-center p-4 bg-white rounded-xl border border-slate-100 shadow-sm">
+                    <div className="text-xs text-slate-400 uppercase font-bold mb-2">密钥分片 (Shamir)</div>
+                    <div className="text-emerald-600 font-bold font-mono">3 / 3 在线</div>
+                    <div className="text-[10px] text-slate-400 mt-1">Threshold Met</div>
+                 </div>
+                 <div className="text-center p-4 bg-white rounded-xl border border-slate-100 shadow-sm">
+                    <div className="text-xs text-slate-400 uppercase font-bold mb-2">同态加密引擎</div>
+                    <div className="text-orange-500 font-bold font-mono">Active</div>
+                    <div className="text-[10px] text-slate-400 mt-1">Zero-Knowledge</div>
+                 </div>
+              </div>
+           </div>
+
+           {/* Interactive Encryption Demo */}
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                 <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><FileLock size={18}/> 实时数据加密演示</h3>
+                 <textarea 
+                    className="w-full h-32 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4 transition-all"
+                    placeholder="请输入敏感明文数据 (如: 学生身份证号、家庭住址)..."
+                    value={encryptInput}
+                    onChange={(e) => setEncryptInput(e.target.value)}
+                 ></textarea>
+                 <button onClick={handleSimulateEncryption} className="w-full py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
+                    <RefreshCw size={16}/> 执行量子加密
+                 </button>
+              </div>
+              <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm flex flex-col relative overflow-hidden">
+                 <h3 className="font-bold text-slate-400 mb-4 flex items-center gap-2 text-sm uppercase tracking-wider"><Database size={16}/> 密文预览 (Ciphertext)</h3>
+                 <div className="flex-1 font-mono text-xs text-green-400 break-all overflow-y-auto max-h-[160px] leading-relaxed p-2 bg-black/20 rounded-lg">
+                    {encryptedOutput || "// 等待输入数据..."}
+                 </div>
+                 {encryptedOutput && (
+                    <div className="absolute top-4 right-4">
+                       <span className="flex h-3 w-3 relative">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                       </span>
+                    </div>
+                 )}
+              </div>
+           </div>
+
+           {/* Panic Button */}
+           <div className="bg-red-50 border border-red-100 rounded-2xl p-6 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                 <div className="p-3 bg-red-100 text-red-600 rounded-full">
+                    <Skull size={24}/>
+                 </div>
+                 <div>
+                    <h3 className="font-bold text-red-900">紧急熔断 (Emergency Wipe)</h3>
+                    <p className="text-xs text-red-700 mt-1 max-w-sm">一旦触发，所有本地存储的主密钥将被物理擦除。数据将永久无法恢复。仅限面临物理入侵时使用。</p>
+                 </div>
+              </div>
+              <button className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition-all flex items-center gap-2" onClick={() => alert("模拟：密钥已销毁，全站数据已锁定。")}>
+                 <Flame size={18}/> 立即销毁密钥
+              </button>
+           </div>
+        </div>
+      );
+      case 'users': return (
+        <div className="bg-white p-6 rounded-xl border border-slate-100">
+          <div className="flex justify-between mb-4"><h3 className="font-bold">用户管理</h3><button onClick={openAddUserModal} className="bg-indigo-600 text-white px-3 py-1.5 rounded text-sm flex items-center gap-1"><Plus size={14}/> 添加学生</button></div>
+          <table className="w-full text-sm text-left"><thead><tr className="border-b text-slate-500"><th className="pb-2">ID</th><th className="pb-2">姓名</th><th className="pb-2">状态</th><th className="pb-2">Token 使用 / 限额</th><th className="pb-2">剩余有效期</th><th className="pb-2 text-right">操作</th></tr></thead><tbody>{users.map(u=>(<tr key={u.id} className="border-b last:border-0 hover:bg-slate-50"><td className="py-3 font-mono text-xs">{u.id}</td><td className="py-3">{u.name}</td><td className="py-3"><span className={`px-2 py-0.5 rounded text-xs ${u.status==='active'?'bg-green-100 text-green-700':'bg-red-100 text-red-700'}`}>{u.status==='active'?'正常':'封禁'}</span></td>
+          <td className="py-3 font-mono text-xs">
+            <span className="text-indigo-600 font-bold">{u.usage}</span> 
+            <span className="text-slate-400 mx-1">/</span> 
+            <span>{u.tokenLimit}</span>
+          </td>
+          <td className="py-3"><CountdownTimer expiresAt={u.expiresAt} onExpire={()=>toggleUserStatus(u.id)}/></td><td className="py-3 text-right flex justify-end gap-2"><button onClick={()=>handleViewUserLogs(u)} className="text-blue-600 bg-blue-50 p-1.5 rounded hover:bg-blue-100" title="查看调用日志"><Activity size={14}/></button><button onClick={()=>handleOpenEditUserModal(u)} className="text-slate-600 bg-slate-100 p-1.5 rounded hover:bg-slate-200" title="权限管理"><Sliders size={14}/></button><button onClick={()=>handleOpenExtendModal(u)} className="text-indigo-600 bg-indigo-50 p-1.5 rounded hover:bg-indigo-100" title="续期"><Clock size={14}/></button><button onClick={()=>handleDeleteUser(u.id)} className="text-red-600 bg-red-50 p-1.5 rounded hover:bg-red-100"><Trash2 size={14}/></button></td></tr>))}</tbody></table>
+        </div>
+      );
+      case 'nodes': return (
+        <div className="bg-white p-6 rounded-xl border border-slate-100">
+          <div className="flex justify-between mb-4"><h3 className="font-bold">节点管理</h3><div className="flex gap-2"><button onClick={()=>setShowNodeModal(true)} className="bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded text-sm flex items-center gap-1 hover:bg-slate-50"><Plus size={14}/> 手动添加</button><button onClick={handleScanQRCode} className="bg-slate-900 text-white px-3 py-1.5 rounded text-sm flex items-center gap-1"><QrCode size={14}/> 扫码添加</button></div></div>
+          <table className="w-full text-sm text-left"><thead><tr className="border-b text-slate-500"><th className="pb-2">名称</th><th className="pb-2">IP</th><th className="pb-2">延迟</th><th className="pb-2">状态</th></tr></thead><tbody>{nodes.map(n=>(<tr key={n.id} className="border-b last:border-0"><td className="py-3 font-medium">{n.name}</td><td className="py-3 text-slate-500 font-mono text-xs">{n.ip}</td><td className="py-3 text-green-600">{n.latency}</td><td className="py-3"><span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs">{n.status}</span></td></tr>))}</tbody></table>
+        </div>
+      );
+      case 'privacy': return (
+        <div className="bg-white p-6 rounded-xl border border-slate-100">
+          <div className="flex justify-between mb-6"><h3 className="font-bold flex items-center gap-2"><ShieldAlert className="text-rose-600"/> 隐私规则</h3></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h4 className="font-bold text-sm mb-3 text-slate-600">通用正则规则库 (RegEx)</h4>
+              <div className="space-y-3">{Object.keys(privacyRules).map(r=>(<div key={r} className="flex justify-between items-center p-3 border rounded-lg bg-slate-50"><span className="text-sm font-bold capitalize">{PRIVACY_LABELS[r] || r}</span><button onClick={()=>setPrivacyRules({...privacyRules,[r]:!privacyRules[r]})} className={`w-8 h-4 rounded-full relative transition-colors ${privacyRules[r]?'bg-indigo-600':'bg-slate-300'}`}><div className={`w-3 h-3 bg-white rounded-full absolute top-0.5 transition-all ${privacyRules[r]?'right-0.5':'left-0.5'}`}></div></button></div>))}</div>
+            </div>
+            <div>
+               <h4 className="font-bold text-sm mb-3 text-slate-600">自定义敏感词库 (动态拦截)</h4>
+               <div className="bg-slate-50 border rounded-xl p-4 min-h-[200px]">
+                 <div className="flex gap-2 mb-3">
+                   <input className="flex-1 border rounded px-2 text-sm" placeholder="输入新敏感词..." value={newKeyword} onChange={e=>setNewKeyword(e.target.value)} onKeyDown={e=>{if(e.key==='Enter') addCustomKeyword()}}/>
+                   <button onClick={addCustomKeyword} className="bg-indigo-600 text-white px-3 rounded text-sm"><Plus size={14}/></button>
+                 </div>
+                 <div className="flex flex-wrap gap-2">
+                   {customKeywords.map(k => (
+                     <span key={k} className="bg-white border border-slate-200 text-slate-600 px-2 py-1 rounded text-xs flex items-center gap-1">
+                       {k} <button onClick={()=>removeCustomKeyword(k)} className="hover:text-red-500"><X size={10}/></button>
+                     </span>
+                   ))}
+                 </div>
+               </div>
+            </div>
+          </div>
+          
+          <h4 className="font-bold mt-6 mb-2 text-sm">规则测试沙箱</h4>
+          <textarea className="w-full border rounded-lg p-2 h-24 text-sm font-mono" placeholder="请输入测试文本 (尝试输入手机号或自定义敏感词)..." onChange={e=>{const res=localPrivacyFilter(e.target.value, privacyRules, customKeywords); document.getElementById('debug-out').innerHTML=res.sanitizedText.replace(/\[(.*?)\]/g, '<span class="text-red-500 font-bold">[$1]</span>')}}></textarea>
+          <div className="mt-2 bg-slate-50 p-3 rounded text-xs text-slate-600 border border-slate-100 min-h-[40px]" id="debug-out">实时预览...</div>
+        </div>
+      );
+      case 'server': return (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-xl border border-slate-100">
+            <h3 className="font-bold mb-6 flex items-center gap-2"><Cpu className="text-indigo-500"/> 服务器状态监控</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+               {/* Specs */}
+               <div className="space-y-4">
+                 <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                   <div className="text-xs text-slate-500 uppercase mb-1 font-bold">CPU Processor</div>
+                   <div className="font-mono text-sm text-slate-700">{serverConfig.cpu}</div>
+                 </div>
+                 <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                   <div className="text-xs text-slate-500 uppercase mb-1 font-bold">Memory (RAM)</div>
+                   <div className="font-mono text-sm text-slate-700">{serverConfig.ram}</div>
+                 </div>
+                 <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                   <div className="text-xs text-slate-500 uppercase mb-1 font-bold">GPU Accelerator</div>
+                   <div className="font-mono text-sm text-slate-700">{serverConfig.gpu}</div>
+                 </div>
+               </div>
+               {/* Live Charts */}
+               <div className="space-y-6">
+                  {/* CPU Bar */}
+                  <div>
+                    <div className="flex justify-between text-sm mb-2 font-medium"><span>CPU Load</span><span className={serverStats.cpu>80?'text-red-500':''}>{serverStats.cpu}%</span></div>
+                    <div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div style={{width: serverStats.cpu+'%'}} className={`h-full transition-all duration-500 ${serverStats.cpu>80?'bg-red-500':'bg-indigo-500'}`}></div></div>
+                  </div>
+                  {/* RAM Bar */}
+                  <div>
+                    <div className="flex justify-between text-sm mb-2 font-medium"><span>RAM Usage</span><span className={serverStats.ram>80?'text-red-500':''}>{serverStats.ram}%</span></div>
+                    <div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div style={{width: serverStats.ram+'%'}} className={`h-full transition-all duration-500 ${serverStats.ram>80?'bg-red-500':'bg-emerald-500'}`}></div></div>
+                  </div>
+                   {/* GPU Bar */}
+                   <div>
+                    <div className="flex justify-between text-sm mb-2 font-medium"><span>GPU Load</span><span className={serverStats.gpu>80?'text-red-500':''}>{serverStats.gpu}%</span></div>
+                    <div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div style={{width: serverStats.gpu+'%'}} className={`h-full transition-all duration-500 ${serverStats.gpu>80?'bg-red-500':'bg-purple-500'}`}></div></div>
+                  </div>
+                   {/* Temp Bar */}
+                   <div>
+                    <div className="flex justify-between text-sm mb-2 font-medium"><span>Temperature</span><span className={serverStats.temp>80?'text-red-500':''}>{serverStats.temp}°C</span></div>
+                    <div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div style={{width: (serverStats.temp/100)*100+'%'}} className={`h-full transition-all duration-500 ${serverStats.temp>80?'bg-red-500':'bg-orange-400'}`}></div></div>
+                  </div>
+                  
+                  <div className="pt-2">
+                     <button onClick={handleAiServerAnalysis} disabled={isAnalyzingServer} className="w-full py-3 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors flex items-center justify-center gap-2">
+                       {isAnalyzingServer ? <RefreshCw className="animate-spin" size={16}/> : <BrainCircuit size={16}/>} 
+                       {isAnalyzingServer ? "AI 正在诊断硬件健康..." : "启动 AI 硬件深度诊断"}
+                     </button>
+                     {aiServerAnalysis && (
+                       <div className="mt-4 p-4 bg-indigo-50 border border-indigo-100 rounded-xl text-indigo-900 text-sm flex items-start gap-3 animate-in slide-in-from-top-2">
+                         <Sparkles className="flex-shrink-0 mt-0.5 text-indigo-600" size={16}/>
+                         <div>{aiServerAnalysis}</div>
+                       </div>
+                     )}
+                  </div>
+               </div>
+            </div>
+          </div>
+        </div>
+      );
+      case 'api': return (
+        <div className="bg-white p-6 rounded-xl border border-slate-100">
+          <div className="flex justify-between mb-4"><h3 className="font-bold flex items-center gap-2"><Zap className="text-amber-500"/> API 池</h3><button onClick={()=>setShowApiModal(true)} className="bg-slate-900 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-1"><Plus size={14}/> 添加</button></div>
+          <div className="space-y-3">{apiKeys.map(k=>(<div key={k.id} className="flex justify-between items-center p-3 border rounded-lg"><div className="flex items-center gap-2 font-bold text-slate-700">{k.provider} <span className="text-xs font-normal bg-slate-100 px-2 rounded border">{k.model}</span></div><div className="flex items-center gap-2"><span className="text-xs bg-slate-100 px-2 py-1 rounded">{k.baseUrl}</span><button onClick={()=>handleDeleteApiKey(k.id)} className="text-slate-400 hover:text-red-500"><Trash2 size={16}/></button></div></div>))}</div>
+        </div>
+      );
+      case 'logs': return (
+        <div className="bg-white p-6 rounded-xl border border-slate-100">
+           <div className="flex justify-between items-center mb-6">
+            <h3 className="font-bold flex items-center gap-2"><FileText className="text-slate-500"/> 系统审计日志</h3>
+            <button onClick={handleAiLogAnalysis} disabled={isAnalyzingLogs} className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-100 flex items-center gap-2 transition-colors">
+              {isAnalyzingLogs ? <RefreshCw className="animate-spin" size={14}/> : <ShieldCheck size={14}/>} 
+              AI 异常检测
+            </button>
+          </div>
+          {aiAnalysis && <div className="mb-6 p-4 bg-green-50 text-green-800 rounded-xl border border-green-100 text-sm flex items-center gap-2 animate-in fade-in"><CheckCircle size={16}/> {aiAnalysis}</div>}
+          <div className="overflow-hidden rounded-lg border border-slate-200">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-50 text-slate-500">
+                <tr><th className="px-4 py-3">时间</th><th className="px-4 py-3">用户</th><th className="px-4 py-3">操作</th><th className="px-4 py-3">详情</th><th className="px-4 py-3">状态</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {logs.map(log=>(
+                  <tr key={log.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{log.time}</td>
+                    <td className="px-4 py-3 font-medium">{log.user}</td>
+                    <td className="px-4 py-3">{log.action}</td>
+                    <td className="px-4 py-3 text-slate-500 max-w-xs truncate" title={log.detail}>{log.detail}</td>
+                    <td className="px-4 py-3"><span className={`px-2 py-1 rounded text-xs font-medium ${log.status==='warning'?'bg-orange-100 text-orange-700':log.status==='error'?'bg-red-100 text-red-700':'bg-green-100 text-green-700'}`}>{log.status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      );
+      case 'knowledge': return (
+        <div className="bg-white p-6 rounded-xl border border-slate-100">
+          <div className="flex justify-between items-center mb-6">
+             <div>
+               <h3 className="font-bold flex items-center gap-2"><BookOpen className="text-indigo-500"/> RAG 知识库管理</h3>
+               <p className="text-xs text-slate-400 mt-1">上传文档以增强 AI 导师的回答准确性</p>
+             </div>
+             <button className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 hover:bg-slate-800"><UploadCloud size={16}/> 上传新文档</button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {knowledgeFiles.map(f => (
+              <div key={f.id} className="p-4 border border-slate-200 rounded-xl flex items-start gap-4 hover:border-indigo-200 hover:shadow-sm transition-all bg-white group">
+                <div className={`w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 ${f.type==='PDF'?'bg-red-50 text-red-500':'bg-blue-50 text-blue-500'}`}>
+                   <FileText size={24}/>
+                </div>
+                <div className="flex-1 min-w-0">
+                   <div className="font-bold text-slate-800 text-sm mb-1 truncate">{f.name}</div>
+                   <div className="text-xs text-slate-400 mb-3 flex items-center gap-2">
+                      <span>{f.size}</span>
+                      <span>•</span>
+                      <span>{f.date}</span>
+                   </div>
+                   <div className="flex gap-2">
+                     <button onClick={() => handleAiFileAnalysis(f)} disabled={aiFileAnalysis?.loading && aiFileAnalysis?.id === f.id} className="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded text-xs font-bold hover:bg-indigo-100 transition-colors flex items-center gap-1">
+                        {aiFileAnalysis?.loading && aiFileAnalysis?.id === f.id ? <RefreshCw className="animate-spin" size={12}/> : <Sparkles size={12}/>} 
+                        AI 摘要
+                     </button>
+                     <button className="px-3 py-1.5 bg-slate-50 text-slate-500 rounded text-xs hover:bg-red-50 hover:text-red-600 transition-colors flex items-center gap-1"><Trash2 size={12}/> 删除</button>
+                   </div>
+                   {aiFileAnalysis?.id === f.id && !aiFileAnalysis.loading && (
+                     <div className="mt-3 p-3 bg-slate-50 rounded-lg text-xs text-slate-600 leading-relaxed border border-slate-100 animate-in slide-in-from-top-1">
+                        {aiFileAnalysis.content}
+                     </div>
+                   )}
+                </div>
+              </div>
+            ))}
+            {/* Upload Placeholder */}
+            <div className="border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center p-6 text-slate-400 hover:border-indigo-400 hover:text-indigo-500 transition-colors cursor-pointer min-h-[140px]">
+               <UploadCloud size={32} className="mb-2 opacity-50"/>
+               <span className="text-sm font-medium">点击或拖拽文件上传</span>
+               <span className="text-xs opacity-60 mt-1">支持 PDF, Word, TXT (Max 10MB)</span>
+            </div>
+          </div>
+        </div>
+      );
+      default: return null;
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-800 overflow-hidden">
+      {showScanner && <ScannerM/>} {showUserModal && <AddUserM/>} {showExtendModal && <ExtendM/>} {showNodeModal && <AddNodeM/>} {showApiModal && <AddApiM/>}
+      {showUserLogsModal && <UserLogsM/>}
+      {showEditUserModal && <EditUserM/>}
+      <aside className={`bg-slate-900 text-white flex flex-col transition-all duration-300 ${isSidebarOpen ? 'w-64' : 'w-20'}`}>
+        <div className="p-6 flex items-center gap-3 border-b border-slate-800"><div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center flex-shrink-0"><Shield size={18} className="text-white"/></div>{isSidebarOpen && <div><h1 className="font-bold text-sm tracking-wide">{API_CONFIG.COMPANY_NAME}</h1><p className="text-[10px] text-slate-400">云端控制台 Pro</p></div>}</div>
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">{[{id:'dashboard',icon:LayoutDashboard,l:'概览'},{id:'security',icon:ShieldCheck,l:'安全风控中台'},{id:'encryption',icon:LockKeyhole,l:'数据保险库'},{id:'server',icon:Cpu,l:'服务器'},{id:'api',icon:Zap,l:'API池'},{id:'nodes',icon:Server,l:'节点'},{id:'users',icon:Users,l:'用户'},{id:'knowledge',icon:BookOpen,l:'知识库'},{id:'privacy',icon:ShieldAlert,l:'隐私规则'},{id:'logs',icon:FileText,l:'日志'}].map(i=>(<button key={i.id} onClick={()=>setCurrentView(i.id)} className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all ${currentView===i.id?'bg-indigo-600 text-white shadow-lg':'text-slate-400 hover:bg-slate-800 hover:text-white'}`}><i.icon size={20}/>{isSidebarOpen && <span className="text-sm font-medium">{i.l}</span>}</button>))}</nav>
+        <div className="p-4 border-t border-slate-800 bg-slate-900 z-10"><button onClick={()=>setShowStudentPreview(true)} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-indigo-400 px-4 py-2 rounded-lg text-sm mb-4"><Smartphone size={16}/>{isSidebarOpen && "预览学生端"}</button></div>
+      </aside>
+      <main className="flex-1 flex flex-col min-w-0 bg-slate-50">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-20 shadow-sm"><div className="flex items-center gap-4"><button onClick={()=>setSidebarOpen(!isSidebarOpen)} className="text-slate-500 hover:bg-slate-100 p-2 rounded-lg"><Menu size={20}/></button><h2 className="text-lg font-bold text-slate-800">{currentView === 'security' ? '安全风控中台' : currentView === 'privacy' ? '隐私规则配置' : currentView === 'encryption' ? '数据保险库' : currentView.toUpperCase()}</h2></div></header>
+        <div className="flex-1 overflow-auto p-6 scroll-smooth">{renderContent()}</div>
+      </main>
+    </div>
+  );
+}
