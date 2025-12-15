@@ -1,0 +1,691 @@
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { 
+  LayoutDashboard, Server, Users, Key, Activity, Settings, 
+  LogOut, Plus, Trash2, RefreshCw, QrCode, Shield, 
+  Smartphone, Globe, Zap, Search, Eye, EyeOff, ChevronRight,
+  BookOpen, Sparkles, ScrollText, Calculator, Languages, Send, Bot, User, Menu, X, 
+  GraduationCap, FileText, AlertTriangle, CheckCircle, Clock, Database, BarChart3, 
+  XCircle, BrainCircuit, ShieldAlert, Lock, Wand2, Lightbulb, PenTool, 
+  Bell, UploadCloud, FileType, Megaphone, Cpu, HardDrive, Save, Thermometer, UserCheck,
+  HelpCircle, Calendar, MessageSquare, PlusCircle, MoreHorizontal, ChevronDown, Paperclip, Image as ImageIcon, File,
+  Edit3, Share, ThumbsUp, ThumbsDown, Copy, Plane, Volume2, ImagePlus, Play, Square, Highlighter,
+  Network, Scale, Gavel, AlertOctagon, Mic, Bookmark, Download, Star, Users2, ShieldCheck, Map as MapIcon,
+  Target, Award, Timer, Hash, Layers, RotateCw, Check, Brain, FileSearch, Sliders, Fingerprint, MapPin, Laptop,
+  Siren, Flame, Umbrella, LockKeyhole, Eye as EyeIcon, Radio, FileLock, KeyRound, Skull, Divide, FileJson,
+  ZapOff, Gauge, Power, Hourglass, Loader2
+} from 'lucide-react';
+
+// --- 系统补丁：修复未定义的引用 ---
+const XIcon = X; 
+const apiKey = ""; // API Key 占位符 (从环境变量读取)
+const BASE_URL = "https://generativelanguage.googleapis.com/v1beta"; 
+
+// ==========================================
+// 🔌 Backend Service (后端连接层)
+// ==========================================
+/**
+ * 模拟后端服务层
+ * 在真实项目中，将 setTimeout 替换为 fetch/axios 请求
+ */
+class BackendService {
+  // 模拟删除用户 API
+  static async deleteUser(userId) {
+    console.log(`[Backend] Requesting delete for user: ${userId}...`);
+    // 模拟网络延迟 500ms
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // 模拟后端逻辑：如果ID存在则返回成功
+    // const response = await fetch(`/api/v1/users/${userId}`, { method: 'DELETE' });
+    
+    console.log(`[Backend] User ${userId} deleted successfully.`);
+    return { success: true, message: "User deleted" };
+  }
+
+  // 模拟获取用户列表 API
+  static async fetchUsers() {
+    await new Promise(resolve => setTimeout(resolve, 300));
+    return [
+      { id: 'STU_2024001', name: '张三', class: '高三(1)班', status: 'active', usage: '1.2M', tokenLimit: 'Dynamic', expiresAt: '2025-10-01' },
+      { id: 'STU_2024002', name: '李四', class: '高三(2)班', status: 'active', usage: '0.8M', tokenLimit: 'Dynamic', expiresAt: 'PERMANENT' },
+      { id: 'STU_2024003', name: '王五', class: '高三(5)班', status: 'banned', usage: '0.0M', tokenLimit: '0', expiresAt: '2024-12-31' }
+    ];
+  }
+}
+
+// ==========================================
+// 🔐 Security Core (真实安全内核)
+// ==========================================
+
+/**
+ * 浏览器原生 Web Crypto API 封装
+ * 实现 AES-256-GCM 对称加密
+ */
+class CryptoService {
+  // 生成 AES-GCM 密钥 (用于会话)
+  static async generateKey() {
+    return window.crypto.subtle.generateKey(
+      { name: "AES-GCM", length: 256 },
+      true,
+      ["encrypt", "decrypt"]
+    );
+  }
+
+  // 加密数据
+  static async encrypt(text, key) {
+    if (!key) throw new Error("密钥未初始化");
+    const encoder = new TextEncoder();
+    const data = encoder.encode(text);
+    const iv = window.crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV 标准推荐
+
+    const ciphertext = await window.crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: iv },
+      key,
+      data
+    );
+
+    return {
+      iv: Array.from(iv), // 转为数组以便展示
+      ciphertext: Array.from(new Uint8Array(ciphertext))
+    };
+  }
+}
+
+/**
+ * 安全网关：负责 WAF 拦截与隐私清洗
+ */
+class SecurityGateway {
+  static RULES = {
+    phone: /(1[3-9]\d{9})/g,
+    email: /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
+    idCard: /(\d{15}|\d{18}|\d{17}(\d|X|x))/g,
+    studentId: /(STU_\d+|20\d{6,})/g,
+    // WAF 特征库 (Layer 7)
+    sqli: /(\b(UNION|SELECT|INSERT|UPDATE|DELETE|DROP)\b)|(' OR '?'='?)/i,
+    xss: /<script\b[^>]*>|javascript:|onerror=|onload=/i,
+    modelLeak: /(openai|chatgpt|gemini|claude|llama|什么大模型|你是哪家|你的底层|什么模型|你是谁|你的身份|what model|who are you|底层技术)/i
+  };
+
+  /**
+   * 处理请求：执行 WAF 检查和隐私清洗
+   * @throws Error 如果触发 WAF 规则
+   */
+  static processRequest(text, wafConfig, privacyRules, customKeywords = []) {
+    // 1. WAF 检查 (防火墙)
+    if (wafConfig.sql && this.RULES.sqli.test(text)) {
+      throw new Error("WAF_BLOCK: 检测到 SQL 注入攻击特征");
+    }
+    if (wafConfig.xss && this.RULES.xss.test(text)) {
+      throw new Error("WAF_BLOCK: 检测到跨站脚本 (XSS) 攻击特征");
+    }
+
+    // 2. 隐私清洗 (DLP)
+    let sanitizedText = text;
+    let hasSensitiveData = false;
+    const caughtItems = [];
+
+    const replace = (regex, label) => {
+      if (regex.test(sanitizedText)) {
+        sanitizedText = sanitizedText.replace(regex, ` [🔒${label}] `);
+        hasSensitiveData = true;
+        if (!caughtItems.includes(label)) caughtItems.push(label);
+      }
+    };
+
+    if (privacyRules.phone) replace(this.RULES.phone, '隐私_手机号');
+    if (privacyRules.email) replace(this.RULES.email, '隐私_邮箱');
+    if (privacyRules.idCard) replace(this.RULES.idCard, '隐私_身份证');
+    if (privacyRules.studentId) replace(this.RULES.studentId, '隐私_学号');
+    if (privacyRules.modelLeak) replace(this.RULES.modelLeak, '系统保护_模型身份');
+    
+    // 自定义关键词
+    customKeywords.forEach(keyword => {
+      if (sanitizedText.includes(keyword)) {
+        // 使用 replaceAll 确保替换所有实例
+        const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        sanitizedText = sanitizedText.replace(new RegExp(escapedKeyword, 'g'), ' [🚫敏感词] ');
+        hasSensitiveData = true;
+        if (!caughtItems.includes('自定义敏感词')) caughtItems.push('自定义敏感词');
+      }
+    });
+
+    return { sanitizedText, hasSensitiveData, caughtItems };
+  }
+}
+
+// --- 1. 全局配置 ---
+const API_CONFIG = {
+  COMPANY_NAME: '龙场文化科技',
+  ADMIN_APP_NAME: '龙场云端控制台',
+  STUDENT_APP_NAME: 'Longchang Chat',
+  TAGLINE: '知行合一 · 智慧伴学',
+  DATA_RETENTION_DAYS: 60,
+  DEFAULT_LLM_MODEL: 'OpenAI GPT-4-Turbo'
+};
+
+// --- 工具组件：倒计时器 ---
+const CountdownTimer = ({ expiresAt, onExpire }) => {
+  const [timeLeft, setTimeLeft] = useState('');
+  useEffect(() => {
+    if (expiresAt === 'PERMANENT') { setTimeLeft('♾️ 永久有效'); return; }
+    const calculate = () => {
+      const diff = new Date(expiresAt).getTime() - new Date().getTime();
+      if (diff < 0) { setTimeLeft('❌ 已过期'); if(onExpire) onExpire(); return; }
+      const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
+      setTimeLeft(`${d}天 ${h}时`);
+    };
+    calculate();
+    const t = setInterval(calculate, 60000);
+    return () => clearInterval(t);
+  }, [expiresAt]);
+  return <span className="font-mono text-xs text-slate-600">{timeLeft}</span>;
+};
+
+const fileToBase64 = (file) => new Promise((resolve) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(reader.result.split(',')[1]);
+  reader.readAsDataURL(file);
+});
+
+// --- Mock LLM ---
+const callUnifiedLLM = async (messages, mode, taskType = 'chat', dataContext = null) => {
+  await new Promise(r => setTimeout(r, 800));
+  if (taskType === 'chat') return `[${API_CONFIG.DEFAULT_LLM_MODEL}]: 这是一个模拟的智能回复。根据 SecurityGateway 规则，您的请求已通过 WAF 和隐私检查。`;
+  if (taskType === 'analyze_logs') return "【AI 安全审计】\n发现 3 个异常 IP 尝试绕过 WAF，已自动加入黑名单。";
+  if (taskType === 'draft_announcement') return "【系统公告】\n本周六将进行全站安全升级，引入后量子密码学加密层。";
+  if (taskType === 'polish_text') return `[已润色] ${dataContext || '内容'} (更优美的表达...)`;
+  return "AI 服务响应";
+};
+
+// 语音/图像 API Mock
+const callGeminiTTS = async () => null;
+
+// --- 数据 Mock ---
+const LEARNING_MODES = [
+  { id: 'general', name: '全能导师 4.0', short: '全能 4.0', icon: Sparkles, desc: '综合辅导' },
+  { id: 'literature', name: '国学大师 Pro', short: '国学 Pro', icon: ScrollText, desc: '古文写作' },
+  { id: 'math', name: '数理逻辑 Max', short: '数理 Max', icon: Calculator, desc: '理科思维' },
+  { id: 'english', name: '英语外教 Plus', short: '英语 Plus', icon: Languages, desc: '口语交流' },
+];
+
+const SUGGESTIONS = [
+  { icon: PenTool, text: "帮我润色这篇作文", sub: "使其更具文采" },
+  { icon: Calculator, text: "解释二次函数", sub: "通俗易懂的方式" },
+  { icon: Plane, text: "制定学习计划", sub: "针对高三复习" }, 
+  { icon: BrainCircuit, text: "背诵《长恨歌》", sub: "提供记忆技巧" },
+];
+
+const MOCK_EXAM_QUESTIONS = [
+  { id: 1, type: 'single', question: '《论语》中“学而时习之”的下一句是？', options: ['A. 不亦说乎', 'B. 不亦乐乎', 'C. 人不知而不愠', 'D. 温故而知新'], answer: 'A' },
+  { id: 2, type: 'single', question: '已知函数 f(x) = x², 则 f\'(2) 等于？', options: ['A. 2', 'B. 4', 'C. 1', 'D. 0'], answer: 'B' },
+];
+
+const INITIAL_FLASHCARDS = [
+  { id: 1, front: 'Subconscious', back: '潜意识 (n.)', mastery: 'new' },
+  { id: 2, front: 'Photosynthesis', back: '光合作用 (n.)', mastery: 'new' },
+];
+
+const KNOWLEDGE_NODES = [
+  { id: 'root', x: 400, y: 300, r: 40, label: '高中核心', color: '#4f46e5' },
+  { id: 'math', x: 250, y: 150, r: 35, label: '数学', color: '#0ea5e9' },
+  { id: 'chinese', x: 550, y: 150, r: 35, label: '语文', color: '#ec4899' },
+  { id: 'english', x: 250, y: 450, r: 35, label: '英语', color: '#f59e0b' },
+];
+const KNOWLEDGE_LINKS = [{ from: 'root', to: 'math' }, { from: 'root', to: 'chinese' }, { from: 'root', to: 'english' }];
+
+// --- Student App ---
+const StudentApp = ({ onExitPreview, privacyRules, wafRules, onPrivacyTrigger, announcements, knowledgeFiles, customKeywords }) => {
+  const [sessions, setSessions] = useState([{ id: 1, title: '初次见面', messages: [], date: '今天' }]);
+  const [currentSessionId, setCurrentSessionId] = useState(1);
+  const [input, setInput] = useState('');
+  const [mode, setMode] = useState(LEARNING_MODES[0]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showTools, setShowTools] = useState(false); 
+  const [attachment, setAttachment] = useState(null); 
+  const [viewMode, setViewMode] = useState('chat');
+  const [isRecording, setIsRecording] = useState(false);
+  
+  // Exam & Flashcard State
+  const [examState, setExamState] = useState({ currentQ: 0, answers: {}, finished: false, score: 0 });
+  const [flashcards, setFlashcards] = useState(INITIAL_FLASHCARDS);
+  const [currentCardIndex, setCurrentCardIndex] = useState(0);
+  const [isCardFlipped, setIsCardFlipped] = useState(false);
+
+  // Settings Modal
+  const [showSettings, setShowSettings] = useState(false);
+
+  const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  
+  const currentSession = sessions.find(s => s.id === currentSessionId) || sessions[0];
+  const messages = currentSession.messages || [];
+
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isLoading]);
+
+  const updateCurrentSessionMessages = (newMessages) => {
+    setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: newMessages } : s));
+  };
+
+  const createNewSession = () => {
+    const newId = Date.now();
+    setSessions([{ id: newId, title: '新对话', messages: [], date: '今天' }, ...sessions]);
+    setCurrentSessionId(newId);
+    setViewMode('chat');
+  };
+
+  const handleFileSelect = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const base64 = await fileToBase64(file);
+      setAttachment({ name: file.name, type: file.type, url: URL.createObjectURL(file), base64 });
+    }
+    e.target.value = null;
+  };
+
+  const sendMsg = async (overrideText = null) => {
+    const textToSend = overrideText || input;
+    if(!textToSend.trim() && !attachment) return;
+    
+    setInput(''); setAttachment(null); setShowTools(false);
+
+    try {
+      // 🛡️ Security Gateway 核心调用
+      const { sanitizedText, hasSensitiveData, caughtItems } = SecurityGateway.processRequest(
+        textToSend,
+        wafRules,
+        privacyRules,
+        customKeywords
+      );
+
+      const userDisplayMsg = { role: 'user', content: textToSend, privacyBlocked: hasSensitiveData, attachment };
+      const newMsgs = [...messages, userDisplayMsg];
+      updateCurrentSessionMessages(newMsgs);
+
+      if (hasSensitiveData) onPrivacyTrigger(caughtItems);
+
+      setIsLoading(true);
+      const apiMessages = newMsgs.map(m => ({ role: m.role, content: m.role==='user' && m.privacyBlocked ? sanitizedText : m.content }));
+      
+      const res = await callUnifiedLLM(apiMessages.slice(-5), mode.id, 'chat');
+      
+      let finalMsgs = [...newMsgs, { role: 'ai', content: res }];
+      if (currentSession.messages.length === 0) {
+         const newTitle = textToSend.length > 8 ? textToSend.slice(0, 8) + '...' : (textToSend || '文件上传');
+         setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, title: newTitle, messages: finalMsgs } : s));
+      } else {
+         updateCurrentSessionMessages(finalMsgs);
+      }
+    } catch (error) {
+      // WAF 拦截处理
+      const blockedMsg = { role: 'user', content: textToSend, isBlocked: true, blockReason: error.message };
+      updateCurrentSessionMessages([...messages, blockedMsg]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const StudentSettingsModal = () => (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 animate-in fade-in">
+        <div className="bg-white rounded-xl w-96 p-6 shadow-2xl">
+            <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><Settings size={20} className="text-slate-700"/> 账户与隐私设置</h3>
+            <div className="space-y-4">
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
+                    <div className="text-xs text-slate-500 uppercase font-bold mb-1">数据保留策略</div>
+                    <div className="text-sm text-slate-800">原始对话保留 <span className="font-bold text-indigo-600">{API_CONFIG.DATA_RETENTION_DAYS} 天</span></div>
+                </div>
+                <button onClick={()=>alert("申请已提交后台合规中心")} className="w-full py-2 bg-red-50 text-red-600 border border-red-100 rounded-lg text-sm font-bold flex items-center justify-center gap-2"><Trash2 size={16}/> 申请彻底删除数据</button>
+            </div>
+            <button onClick={() => setShowSettings(false)} className="mt-6 w-full py-2 bg-slate-800 text-white rounded-lg text-sm font-bold hover:bg-slate-700">关闭</button>
+        </div>
+    </div>
+  );
+
+  return (
+    <div className="flex h-screen bg-white font-sans text-gray-800 overflow-hidden relative">
+      {showSettings && <StudentSettingsModal />}
+      <aside className={`w-[260px] bg-[#000000] text-gray-100 flex flex-col md:relative fixed inset-y-0 left-0 z-50`}>
+        <div className="p-3 flex items-center justify-between">
+          <button onClick={createNewSession} className="flex-1 flex items-center gap-2 px-3 py-2.5 rounded-lg hover:bg-[#212121] transition-colors text-sm text-white border border-transparent hover:border-white/10">
+            <div className="bg-white text-black rounded-full p-0.5"><Plus size={14}/></div><span className="font-medium">新对话</span>
+          </button>
+          <button onClick={onExitPreview} className="text-xs bg-indigo-600 px-2 py-1 rounded ml-2">退出</button>
+        </div>
+        
+        <div className="px-3 py-2 space-y-1 border-b border-white/10 mb-2">
+           <button onClick={() => setViewMode('graph')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${viewMode === 'graph' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#212121]'}`}><Network size={16}/> 知识图谱</button>
+           <button onClick={() => setViewMode('exam')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${viewMode === 'exam' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#212121]'}`}><Target size={16}/> 模拟考试</button>
+           <button onClick={() => setViewMode('flashcards')} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${viewMode === 'flashcards' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#212121]'}`}><Layers size={16}/> AI 智能闪卡</button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-4 custom-scrollbar">
+           {sessions.map(s => (<div key={s.id} onClick={() => { setCurrentSessionId(s.id); setViewMode('chat'); }} className={`group flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm cursor-pointer relative overflow-hidden ${currentSessionId === s.id && viewMode === 'chat' ? 'bg-[#212121]' : 'hover:bg-[#212121]'}`}><MessageSquare size={16} className="text-gray-400 flex-shrink-0"/><span className="truncate flex-1 pr-6">{s.title}</span></div>))}
+        </div>
+        <div className="p-3 border-t border-white/10">
+            <button onClick={() => setShowSettings(true)} className="flex items-center gap-3 w-full px-3 py-3 hover:bg-[#212121] rounded-lg transition-colors text-sm group">
+                <div className="w-8 h-8 rounded bg-green-600 flex items-center justify-center text-white font-bold">S</div>
+                <div className="flex flex-col items-start text-left"><span className="font-medium">Student</span><span className="text-xs text-gray-400">设置与隐私</span></div>
+                <Settings size={14} className="ml-auto text-gray-500"/>
+            </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 flex flex-col min-w-0 bg-slate-50">
+        {viewMode === 'chat' ? (
+          <>
+            <div className="flex-1 overflow-y-auto relative custom-scrollbar bg-slate-50 p-4">
+              {messages.map((m, i) => (
+                <div key={i} className={`w-full py-2 px-4 md:px-0`}>
+                  <div className={`flex gap-4 max-w-3xl mx-auto ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                    <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center ${m.role === 'user' ? 'bg-gray-200' : 'bg-green-500 text-white'}`}>{m.role === 'user' ? <User size={16} className="text-gray-600"/> : <Bot size={18}/>}</div>
+                    <div className="relative flex-1 overflow-hidden">
+                      <div className={`p-3 rounded-2xl text-sm ${m.role === 'user' ? (m.isBlocked ? 'bg-red-100 text-red-800 border border-red-200' : 'bg-white border border-gray-100') : 'bg-white border border-gray-100 shadow-sm'}`}>
+                        {m.attachment && <div className="mb-2 p-2 bg-gray-50 rounded flex items-center gap-2"><FileText size={14}/> {m.attachment.name}</div>}
+                        <div className="whitespace-pre-wrap">{m.content}</div>
+                        {m.privacyBlocked && <div className="mt-2 inline-flex items-center gap-1.5 text-[10px] text-orange-600 bg-orange-50 px-2 py-1 rounded border border-orange-100"><ShieldAlert size={10} /> 隐私已自动脱敏</div>}
+                        {m.isBlocked && <div className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-bold text-red-600"><AlertTriangle size={10}/> WAF 拦截: {m.blockReason}</div>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {isLoading && <div className="flex justify-center p-4"><RefreshCw className="animate-spin text-gray-400"/></div>}
+              <div ref={messagesEndRef} />
+            </div>
+            <div className="p-4 bg-white border-t">
+              <div className="max-w-3xl mx-auto relative flex items-end border border-gray-300 rounded-2xl shadow-sm bg-white overflow-hidden focus-within:ring-2 ring-indigo-100">
+                <button onClick={() => setShowTools(!showTools)} className="p-3 text-gray-400 hover:text-indigo-500"><Wand2 size={20} /></button>
+                <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect}/>
+                <button onClick={() => fileInputRef.current?.click()} className="p-3 text-gray-400 hover:text-gray-600"><Paperclip size={20} /></button>
+                <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); } }} rows={1} className="flex-1 py-3 px-0 bg-transparent border-none outline-none text-gray-800 resize-none max-h-32" placeholder="发送消息 (已启用 WAF 防护)..."/>
+                <button onClick={() => sendMsg()} disabled={isLoading || !input.trim()} className="p-2 m-2 bg-black text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"><Send size={16} /></button>
+              </div>
+              {showTools && (<div className="absolute bottom-20 left-4 bg-white border rounded-xl shadow-xl p-2 z-10 w-48"><button onClick={() => {sendMsg("帮我润色这段文字"); setShowTools(false);}} className="w-full text-left px-3 py-2 hover:bg-gray-50 rounded text-sm flex gap-2"><PenTool size={14}/> 润色</button></div>)}
+            </div>
+          </>
+        ) : viewMode === 'graph' ? (
+          <div className="flex-1 bg-slate-50 flex items-center justify-center relative">
+             <div className="text-center text-slate-400"><Network size={64} className="mx-auto mb-4"/>知识图谱组件 (保留原样)</div>
+          </div>
+        ) : viewMode === 'exam' ? (
+          <div className="flex-1 bg-slate-50 p-8 flex justify-center">
+             <div className="w-full max-w-2xl bg-white p-6 rounded-2xl shadow-sm border">
+                <h2 className="text-xl font-bold mb-4">模拟考试</h2>
+                <div className="mb-4">{MOCK_EXAM_QUESTIONS[examState.currentQ].question}</div>
+                {MOCK_EXAM_QUESTIONS[examState.currentQ].options.map(o=><div key={o} className="p-3 border rounded mb-2 hover:bg-gray-50 cursor-pointer">{o}</div>)}
+                <div className="flex justify-between mt-6"><button className="text-gray-500">上一题</button><button className="bg-indigo-600 text-white px-4 py-2 rounded">下一题</button></div>
+             </div>
+          </div>
+        ) : (
+          <div className="flex-1 bg-slate-50 flex items-center justify-center">
+             <div className="w-80 h-96 bg-white rounded-2xl shadow-xl border flex items-center justify-center cursor-pointer" onClick={()=>setIsCardFlipped(!isCardFlipped)}>
+                <h3 className="text-2xl font-bold">{isCardFlipped ? flashcards[currentCardIndex].back : flashcards[currentCardIndex].front}</h3>
+             </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+};
+
+// ==========================================
+// 🛡️ Admin Dashboard (全功能后台)
+// ==========================================
+const INITIAL_NODES = [{ id: 1, name: '香港 HK-01', type: 'Vmess', ip: '47.102.xx.xx', status: '在线', latency: '45ms' }, { id: 2, name: '日本 JP-Osaka', type: 'Shadowsocks', ip: '103.20.xx.xx', status: '在线', latency: '89ms' }];
+const INITIAL_API_KEYS = [{ id: 1, provider: 'OpenAI', model: 'GPT-4o', alias: 'Primary', keyMask: 'sk-***4f9a', balance: 'Active' }]; // 密钥已脱敏
+const INITIAL_FILES = [{ id: 1, name: '论语·学而篇解析.pdf', size: '2.4 MB', date: '2023-10-15' }, { id: 2, name: '高三数学函数考点.docx', size: '1.1 MB', date: '2023-11-02' }];
+
+export default function AdminDashboard() {
+  const [currentView, setCurrentView] = useState('dashboard');
+  const [nodes, setNodes] = useState(INITIAL_NODES);
+  
+  // 使用状态管理用户列表，初始数据为空，将从 BackendService 获取
+  const [users, setUsers] = useState([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState(null); // 追踪正在删除的用户
+
+  const [apiKeys, setApiKeys] = useState(INITIAL_API_KEYS);
+  const [knowledgeFiles, setKnowledgeFiles] = useState(INITIAL_FILES);
+  const [privacyRules, setPrivacyRules] = useState({ phone: true, email: true, idCard: true, studentId: true, modelLeak: true });
+  const [wafRules, setWafRules] = useState({ sql: true, xss: true, ddos: true });
+  const [customKeywords, setCustomKeywords] = useState(['内部项目', 'ProjectX']);
+  const [showStudentPreview, setShowStudentPreview] = useState(false);
+  const [privacyLogs, setPrivacyLogs] = useState([]);
+  
+  // Real Encryption State
+  const [encryptInput, setEncryptInput] = useState('');
+  const [encryptionResult, setEncryptionResult] = useState(null);
+  const [sessionKey, setSessionKey] = useState(null);
+  const [vaultStatus, setVaultStatus] = useState('locked');
+
+  // Server Stats & Token Pool
+  const [serverStats, setServerStats] = useState({ cpu: 0, ram: 0 });
+  const [tokenPool, setTokenPool] = useState({ total: 100000000, used: 45000000, status: 'normal' });
+
+  // Init Key
+  useEffect(() => { CryptoService.generateKey().then(setSessionKey); }, []);
+
+  // Simulator for Stats
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setServerStats({ cpu: Math.floor(Math.random()*30+10), ram: Math.floor(40+Math.random()*20) });
+      setTokenPool(prev => {
+        const fluctuation = Math.floor((Math.random() - 0.5) * 1000000);
+        let newUsed = prev.used + fluctuation;
+        let status = newUsed > prev.total * 0.8 ? 'peak' : newUsed < prev.total * 0.3 ? 'idle' : 'normal';
+        return { ...prev, used: newUsed, status };
+      });
+    }, 2000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch Users on Load
+  useEffect(() => {
+    const loadUsers = async () => {
+      setIsLoadingUsers(true);
+      const data = await BackendService.fetchUsers();
+      setUsers(data);
+      setIsLoadingUsers(false);
+    };
+    loadUsers();
+  }, []);
+
+  const handleRunEncryption = async () => {
+    if (!encryptInput || !sessionKey) return;
+    try {
+      const { iv, ciphertext } = await CryptoService.encrypt(encryptInput, sessionKey);
+      setEncryptionResult({ iv: iv.join(','), ciphertext: ciphertext.join(','), algo: 'AES-256-GCM' });
+    } catch (e) { alert("加密失败: " + e.message); }
+  };
+
+  // 🗑️ 删除用户处理函数
+  const handleDeleteUser = async (userId) => {
+    if (!window.confirm(`确认要删除用户 ${userId} 吗？此操作不可恢复。`)) return;
+    
+    setDeletingUserId(userId);
+    try {
+      const res = await BackendService.deleteUser(userId);
+      if (res.success) {
+        // 后端成功后，更新本地状态
+        setUsers(prev => prev.filter(u => u.id !== userId));
+        addLog(`管理员删除了用户: ${userId}`, 'warning');
+      }
+    } catch (error) {
+      alert("删除失败，请稍后重试");
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
+
+  const addLog = (msg, type='info') => setPrivacyLogs(prev => [{id: Date.now(), msg, type, time: new Date().toLocaleTimeString()}, ...prev].slice(0, 50));
+  const handlePrivacyTrigger = (items) => addLog(`拦截敏感信息: ${items.join(', ')}`, 'warning');
+
+  // Render Helpers
+  const SafeHTMLRender = ({ text }) => {
+    const parts = text.split(/(\[🔒[^\]]+\]|\[🚫[^\]]+\])/g);
+    return <div className="font-mono text-sm bg-slate-900 text-slate-300 p-3 rounded-lg break-all whitespace-pre-wrap">{parts.map((p, i) => (p.startsWith('[🔒') || p.startsWith('[🚫')) ? <span key={i} className="text-red-400 font-bold">{p}</span> : <span key={i}>{p}</span>)}</div>;
+  };
+
+  if (showStudentPreview) return <StudentApp onExitPreview={() => setShowStudentPreview(false)} privacyRules={privacyRules} wafRules={wafRules} customKeywords={customKeywords} onPrivacyTrigger={handlePrivacyTrigger} announcements={[]} knowledgeFiles={knowledgeFiles}/>;
+
+  const renderContent = () => {
+    switch (currentView) {
+      case 'dashboard': return (
+        <div className="space-y-6">
+          <div className="grid grid-cols-4 gap-6">
+             <div className="bg-white p-6 rounded-xl border shadow-sm"><div className="text-xs font-bold text-slate-500">SYSTEM CPU</div><div className="text-2xl font-bold text-indigo-600 mt-2">{serverStats.cpu}%</div><div className="w-full bg-slate-100 h-1 mt-2"><div style={{width: `${serverStats.cpu}%`}} className="bg-indigo-600 h-full"></div></div></div>
+             <div className="bg-white p-6 rounded-xl border shadow-sm"><div className="text-xs font-bold text-slate-500">MEMORY</div><div className="text-2xl font-bold text-emerald-600 mt-2">{serverStats.ram}%</div><div className="w-full bg-slate-100 h-1 mt-2"><div style={{width: `${serverStats.ram}%`}} className="bg-emerald-600 h-full"></div></div></div>
+             <div className="bg-white p-6 rounded-xl border shadow-sm"><div className="text-xs font-bold text-slate-500">TOKEN POOL</div><div className="text-2xl font-bold text-blue-600 mt-2">{(tokenPool.used/1000000).toFixed(1)}M</div><div className="text-xs text-slate-400">{tokenPool.status.toUpperCase()}</div></div>
+             <div className="bg-white p-6 rounded-xl border shadow-sm"><div className="text-xs font-bold text-slate-500">WAF EVENTS</div><div className="text-2xl font-bold text-red-600 mt-2">{privacyLogs.length}</div></div>
+          </div>
+          <div className="bg-white p-6 rounded-xl border shadow-sm">
+             <h3 className="font-bold mb-4 flex items-center gap-2"><Gauge size={18}/> Token 动态调度池 (全站算力)</h3>
+             <div className="relative h-10 bg-slate-100 rounded-lg overflow-hidden"><div style={{width: `${(tokenPool.used/tokenPool.total)*100}%`}} className={`h-full flex items-center justify-end px-3 text-white text-xs font-bold transition-all duration-1000 ${tokenPool.status==='peak'?'bg-orange-500':tokenPool.status==='idle'?'bg-green-500':'bg-blue-600'}`}>{((tokenPool.used/tokenPool.total)*100).toFixed(1)}%</div></div>
+          </div>
+        </div>
+      );
+      case 'security': return (
+        <div className="space-y-6">
+           <div className="grid grid-cols-2 gap-6">
+              <div className="bg-white p-6 rounded-xl border shadow-sm">
+                 <h3 className="font-bold mb-4 flex items-center gap-2"><ShieldCheck className="text-emerald-500"/> WAF 防护策略</h3>
+                 <div className="space-y-4">
+                    {['sql', 'xss', 'ddos'].map(k => (
+                       <div key={k} className="flex justify-between items-center p-3 bg-slate-50 rounded border"><span className="uppercase font-bold text-sm">{k} Protection</span><button onClick={()=>setWafRules({...wafRules, [k]:!wafRules[k]})} className={`w-10 h-5 rounded-full relative transition-colors ${wafRules[k]?'bg-emerald-500':'bg-slate-300'}`}><div className={`w-3 h-3 bg-white rounded-full absolute top-1 transition-all ${wafRules[k]?'left-6':'left-1'}`}></div></button></div>
+                    ))}
+                 </div>
+              </div>
+              <div className="bg-white p-6 rounded-xl border shadow-sm border-l-4 border-l-orange-500">
+                 <h3 className="font-bold mb-4 flex items-center gap-2"><ZapOff className="text-orange-500"/> 异常行为熔断器</h3>
+                 <div className="p-4 bg-orange-50 rounded border border-orange-100 mb-4"><div className="font-bold text-orange-800 text-sm">自动熔断 (Auto Fusion)</div><div className="text-xs text-orange-600">当 QPS &gt; 60 时自动切断端口并冻结账户 10-60 分钟。</div></div>
+                 <button onClick={()=>alert("模拟：检测到高频攻击，端口已熔断，IP已封禁。")} className="w-full py-2 bg-slate-900 text-white rounded text-sm font-bold">模拟攻击触发</button>
+              </div>
+           </div>
+        </div>
+      );
+      case 'encryption': return (
+        <div className="space-y-6">
+           <div className="bg-white p-6 rounded-xl border shadow-sm">
+              <div className="flex justify-between items-center mb-6">
+                 <h3 className="font-bold flex items-center gap-2"><LockKeyhole className="text-indigo-600"/> 数据保险库 (Web Crypto API)</h3>
+                 <button onClick={()=>setVaultStatus(s=>s==='locked'?'unlocked':'locked')} className={`px-3 py-1 rounded text-xs font-bold ${vaultStatus==='locked'?'bg-red-100 text-red-600':'bg-green-100 text-green-600'}`}>{vaultStatus==='locked'?'VAULT LOCKED':'VAULT OPEN'}</button>
+              </div>
+              <div className="grid grid-cols-2 gap-6">
+                 <div>
+                    <textarea className="w-full h-32 p-3 border rounded text-sm font-mono focus:ring-2 focus:ring-indigo-500" placeholder="请输入敏感数据..." value={encryptInput} onChange={e=>setEncryptInput(e.target.value)}/>
+                    <button onClick={handleRunEncryption} className="mt-2 w-full bg-indigo-600 text-white py-2 rounded font-bold flex items-center justify-center gap-2"><RefreshCw size={14}/> 执行 AES-256-GCM 加密</button>
+                 </div>
+                 <div className="bg-slate-900 p-4 rounded text-green-400 text-xs font-mono break-all overflow-y-auto h-44 border border-slate-700">
+                    {encryptionResult ? <><div className="mb-2 text-indigo-300">Algo: {encryptionResult.algo}</div><div className="mb-2 text-orange-300">IV: [{encryptionResult.iv}]</div><div>Cipher: [{encryptionResult.ciphertext}]</div></> : "// 等待加密..."}
+                 </div>
+              </div>
+           </div>
+        </div>
+      );
+      case 'privacy': return (
+        <div className="space-y-6">
+           <div className="bg-white p-6 rounded-xl border shadow-sm">
+              <h3 className="font-bold mb-4 flex items-center gap-2"><EyeOff className="text-indigo-600"/> 隐私规则配置</h3>
+              <div className="flex flex-wrap gap-2 mb-6">
+                 {Object.keys(privacyRules).map(r=><button key={r} onClick={()=>setPrivacyRules({...privacyRules, [r]:!privacyRules[r]})} className={`px-3 py-1 rounded text-xs border ${privacyRules[r]?'bg-indigo-50 border-indigo-200 text-indigo-700':'bg-white text-slate-500'}`}>{r}</button>)}
+              </div>
+              <h4 className="font-bold text-sm mb-2">安全沙箱测试 (Safe Render)</h4>
+              <div className="grid grid-cols-2 gap-4">
+                 <textarea className="p-3 border rounded text-sm h-32" placeholder="输入: 我的手机号是 13800138000, 并在 SQL 中尝试 ' OR 1=1" onChange={(e)=>{ try { const res=SecurityGateway.processRequest(e.target.value, wafRules, privacyRules, customKeywords); setEncryptionResult(res); } catch(err){ setEncryptionResult({error: err.message}); } }}/>
+                 <div className="bg-slate-900 rounded p-3 text-xs overflow-auto h-32">
+                    {encryptionResult?.error ? <span className="text-red-500 font-bold">{encryptionResult.error}</span> : encryptionResult?.sanitizedText ? <SafeHTMLRender text={encryptionResult.sanitizedText}/> : <span className="text-slate-500">等待输入...</span>}
+                 </div>
+              </div>
+           </div>
+        </div>
+      );
+      case 'users': return (
+        <div className="bg-white p-6 rounded-xl border shadow-sm">
+           <h3 className="font-bold mb-4 flex items-center justify-between">
+             用户管理
+             {isLoadingUsers && <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="animate-spin" size={14}/> 正在从 Backend 获取数据...</div>}
+           </h3>
+           <table className="w-full text-sm text-left">
+             <thead>
+               <tr className="border-b text-slate-500">
+                 <th className="pb-2">ID</th>
+                 <th className="pb-2">姓名</th>
+                 <th className="pb-2">Token 模式</th>
+                 <th className="pb-2">有效期</th>
+                 <th className="pb-2 text-right">操作</th>
+               </tr>
+             </thead>
+             <tbody>
+               {users.map(u=>(
+                 <tr key={u.id} className="border-b last:border-0 hover:bg-slate-50 transition-colors">
+                   <td className="py-2 font-mono">{u.id}</td>
+                   <td className="py-2">{u.name}</td>
+                   <td className="py-2"><span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs">{u.tokenLimit}</span></td>
+                   <td className="py-2"><CountdownTimer expiresAt={u.expiresAt}/></td>
+                   <td className="py-2 text-right">
+                     <button 
+                       onClick={() => handleDeleteUser(u.id)} 
+                       disabled={deletingUserId === u.id}
+                       className="text-red-500 hover:bg-red-50 p-2 rounded transition-colors disabled:opacity-50"
+                       title="删除用户"
+                     >
+                       {deletingUserId === u.id ? <Loader2 className="animate-spin" size={16}/> : <Trash2 size={16}/>}
+                     </button>
+                   </td>
+                 </tr>
+               ))}
+             </tbody>
+           </table>
+        </div>
+      );
+      case 'nodes': return (
+        <div className="bg-white p-6 rounded-xl border shadow-sm">
+           <div className="flex justify-between mb-4"><h3 className="font-bold">节点管理</h3><button className="text-xs bg-black text-white px-2 py-1 rounded">添加节点</button></div>
+           {nodes.map(n=>(<div key={n.id} className="flex justify-between p-3 border-b last:border-0"><span className="font-medium">{n.name}</span><span className="text-green-600 text-xs">{n.latency}</span></div>))}
+        </div>
+      );
+      case 'knowledge': return (
+        <div className="bg-white p-6 rounded-xl border shadow-sm">
+           <div className="flex justify-between mb-4"><h3 className="font-bold">RAG 知识库</h3><button className="text-xs bg-black text-white px-2 py-1 rounded">上传文档</button></div>
+           {knowledgeFiles.map(f=>(<div key={f.id} className="flex items-center gap-3 p-3 border rounded mb-2"><FileText size={16}/><div className="flex-1 text-sm font-medium">{f.name}</div><div className="text-xs text-slate-400">{f.size}</div></div>))}
+        </div>
+      );
+      case 'api': return (
+        <div className="bg-white p-6 rounded-xl border shadow-sm">
+           <h3 className="font-bold mb-4">API 密钥池 (脱敏)</h3>
+           {apiKeys.map(k=>(<div key={k.id} className="flex justify-between p-3 border rounded mb-2"><div className="font-bold text-sm">{k.alias} <span className="font-normal text-xs bg-slate-100 px-1 rounded">{k.model}</span></div><div className="font-mono text-xs text-slate-400">{k.keyMask}</div></div>))}
+        </div>
+      );
+      case 'logs': return (
+        <div className="bg-white p-6 rounded-xl border shadow-sm">
+           <h3 className="font-bold mb-4">系统审计日志</h3>
+           <div className="h-64 overflow-y-auto">{privacyLogs.map(l=>(<div key={l.id} className="text-xs py-1 border-b"><span className="text-slate-400 mr-2">[{l.time}]</span>{l.msg}</div>))}</div>
+        </div>
+      );
+      default: return null;
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-800 overflow-hidden">
+      <aside className="w-64 bg-slate-900 text-white flex flex-col flex-shrink-0">
+        <div className="p-6 flex items-center gap-3 border-b border-slate-800"><Shield className="text-indigo-500" /><div><div className="font-bold text-sm">龙场安全架构</div><div className="text-[10px] text-slate-400">Security MVP v2.0</div></div></div>
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+          {[
+            {id: 'dashboard', icon: LayoutDashboard, label: '态势感知'},
+            {id: 'security', icon: ShieldCheck, label: '安全风控 WAF'},
+            {id: 'encryption', icon: LockKeyhole, label: '数据保险库'},
+            {id: 'privacy', icon: EyeOff, label: '隐私清洗规则'},
+            {id: 'users', icon: Users, label: '用户管理'},
+            {id: 'nodes', icon: Server, label: '节点管理'},
+            {id: 'knowledge', icon: BookOpen, label: '知识库 RAG'},
+            {id: 'api', icon: Zap, label: 'API 密钥池'},
+            {id: 'server', icon: Cpu, label: '服务器监控'},
+            {id: 'logs', icon: FileText, label: '审计日志'},
+          ].map(item => (<button key={item.id} onClick={() => setCurrentView(item.id)} className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${currentView===item.id ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800'}`}><item.icon size={18}/> <span>{item.label}</span></button>))}
+        </nav>
+        <div className="p-4 border-t border-slate-800"><button onClick={() => setShowStudentPreview(true)} className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 p-2 rounded text-sm text-indigo-400 transition-colors"><Smartphone size={16}/> 预览学生端</button></div>
+      </aside>
+      <main className="flex-1 overflow-auto p-8">{renderContent()}</main>
+    </div>
+  );
+}
