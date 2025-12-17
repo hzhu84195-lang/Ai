@@ -1,0 +1,12 @@
+{
+  "name": "threejs-particle-system",
+  "version": "1.0.0",
+  "description": "Simple Three.js particle flow demo",
+  "scripts": {
+    "test": "echo \"No automated tests available\""
+  },
+  "keywords": ["three", "particles", "webgl"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
